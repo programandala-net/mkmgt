@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-\ Version A-00-201504101415
+\ Version A-00-201504102349 (first working version)
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -38,14 +38,14 @@
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ History
 
-\ 2015-04-10: start.
+\ 2015-04-10: Start. First working version.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
 
 \ Copy TAP files and use the information from their headers.
 
-\ Add files to an existent disk images.
+\ Add files to an existent disk image.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Requirements
@@ -79,12 +79,15 @@ require string.fs \ Gforth dynamic strings
 
 variable image-filename$
 
-2   constant sides/disk
-80  constant tracks/side
-10  constant sectors/track
-512 constant bytes/sector
-80  constant files/disk
-10  constant /filename  \ max length of DOS filenames
+  2 constant sides/disk     \ sides (0..1)
+ 80 constant tracks/side    \ tracks (0..79)
+ 10 constant sectors/track  \ sectors (1..10)
+512 constant bytes/sector   \ sector size
+510 constant data/sector    \ actual data saved into a sector
+ 80 constant files/disk     \ max number of directory entries (1..80)
+ 10 constant /filename      \ max length of DOS filenames
+  9 constant /file-header   \ length of the file header
+256 constant /entry         \ size of a directory entry
 
 sides/disk tracks/side sectors/track bytes/sector * * *
 constant /image  \ length of the disk image
@@ -125,21 +128,19 @@ image /image erase
 
 : @z80 ( a -- n )
   \ Fetch a 16-bit value with Z80 format: LSB first.
-  dup c@ swap c@ 256 * + 
+  dup c@ swap 1+ c@ 256 * +
   ;
 : !z80 ( n a -- )
   \ Store a 16-bit value with Z80 format: LSB first.
-  2dup swap 256 mod swap c!
-  swap 256 / swap 1+ c!
+  swap 2dup  256 mod swap c!  256 / swap 1+ c!
   ;
 : @bigendian ( a -- n )
   \ Fetch a 16-bit value with big-endian format: MSB first.
-  dup c@ 256 * swap c@ +
+  dup c@ 256 * swap 1+ c@ +
   ;
 : !bigendian ( n a -- )
   \ Store a 16-bit value with big-endian format: MSB first.
-  2dup swap 256 / swap c!
-  swap 256 mod swap 1+ c!
+  swap 2dup  256 / swap c!  256 mod swap 1+ c!
   ;
 
 : mgtc@   ( +n -- 8b )   image+ c@  ;
@@ -221,10 +222,23 @@ variable sectors-already-used
   false  \ default output
   sectors-already-used off
   files/disk 0 ?do
-    i entry>pos dup mgtc@
-    if    11 + mgt@be sectors-already-used +!
-    else  swap 0= unloop exit  then
+    i entry>pos
+    \ dup cr ." entry pos=" .  \ XXX INFORMER
+    dup mgtc@
+    if    11 + mgt@be
+          \ cr ." sectors used by the entry=" dup . \ XXX INFORMER
+          sectors-already-used +!
+          \ cr ." sectors already used=" sectors-already-used ? \ XXX INFORMER
+    else
+          swap 0= unloop exit  then
   loop
+  ;
+
+: -directory-entry  ( +n -- )
+  \ XXX not used
+  \ Erase a directory entry in the disk image.
+  \ +n = disk image position of a directory entry
+  image+ /entry 0xFF fill
   ;
 
 : directory-entry  ( ca len +n -- )
@@ -233,6 +247,8 @@ variable sectors-already-used
 
   \ ca len = filename (host system format)
   \ +n = disk image position of a free directory entry
+
+  \ dup -directory-entry \ XXX not used
 
   entry-pos !  filename$ $!
 
@@ -263,10 +279,13 @@ variable sectors-already-used
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
 
-  \ XXX note: pyz80 adds 9 bytes to the file length,
-  \ because of the SAMDOS header.
-  file-length 510 / 1+  dup sectors/file !
-  entry-pos @ 11 + mgt!be
+  \ The file header (bytes 211-219 of the directory entry
+  \ is saved also at the start of the file for some file types).
+
+  file-length /file-header + 510 / 1+  dup sectors/file !
+  \ dup cr ." sectors used by the new file=" . \ XXX INFORMER
+  \    cr ." sectors already used=" sectors-already-used ? \ XXX INFORMER
+  entry-pos @ 11 + ~~ mgt!be
 
   \ Calculate the starting side, track and sector of the file.
 
@@ -278,7 +297,7 @@ variable sectors-already-used
   \ Set the address of the first sector in the file
   \ (positions 13-14 of the directory entry).
 
-  starting-track @ starting-side 128 and +
+  starting-track @ starting-side @ 128 and +
   entry-pos @ 13 + mgtc!  \ track (0-79, 128-207)
   starting-sector @ entry-pos @ 14 + mgtc!  \ sector (1-10)
 
@@ -298,9 +317,9 @@ variable sectors-already-used
     \ image[dirpos+15 + sectors_already_used/8] |= (1 << (sectors_already_used & 7))
 
     entry-pos @  15 +  sectors-already-used @ 8 / +  \ map position
-    image+ dup c@  \ current content
+    image+ dup c@  \ address and its current content
     1 sectors-already-used @ %111 and lshift  \ bit to be set
-    or swap c!  \ update
+    or swap c!  \ update the map position
 
     1 sectors-already-used +!
     -1 sectors/file +!
@@ -322,6 +341,9 @@ variable sectors-already-used
   3 entry-pos @ 211 + mgtc!
   file-length entry-pos @ 212 + mgt!
 
+  \ This is what GDOS does for code files, not sure why:
+  $FFFF entry-pos @ 216 + mgt!
+
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -330,10 +352,11 @@ variable sectors-already-used
 variable side
 variable track
 variable sector
-variable file-pos       \ position in the current file contents
-variable image-pos      \ position in the disk image
-variable raw-image-pos  \ position in the disk image
-variable copy-len       \ size of the copied chunk
+variable file-pos            \ position in the current file contents
+variable image-pos           \ position in the disk image
+variable previous-image-pos  \ position in the disk image
+variable copy-len            \ size of the copied chunk
+variable start-of-file       \ flag for the first copied chunk
 
 : save-file  ( -- )
 
@@ -343,14 +366,32 @@ variable copy-len       \ size of the copied chunk
   starting-track @ track !
   starting-sector @ sector !
   0 file-pos !
+  start-of-file on
 
   begin  file-pos @ file-length <  while
 
     track @ side @ sector @ geometry>pos
-    dup raw-image-pos !  image-pos !
-    file-length file-pos @ - dup 509 >
-    if    drop 510 
-    then  copy-len !
+    dup previous-image-pos !  image-pos !
+
+    \ Calculate the length of the chunk to be copied.
+
+    start-of-file @ if
+
+      \ Copy the file header from the directory entry.
+
+      entry-pos @ 211 + image+ image-pos @ image+ /file-header move
+
+      /file-header image-pos +!
+      data/sector /file-header - copy-len !
+      start-of-file off
+
+    else
+
+      file-length file-pos @ - dup data/sector 1- >
+      if    drop data/sector
+      then  copy-len !
+
+    then
 
     \ Copy the data.
 
@@ -361,19 +402,19 @@ variable copy-len       \ size of the copied chunk
     copy-len @ file-pos +!
 
     1 sector +!
-    sector @ 11 = if
+    sector @ sectors/track > if
       1 sector !  1 track +!
-      track @ 80 = if
+      track @ tracks/side = if
         0 track !  1 side +!
-        side @ 2 = abort" Disk full" \ XXX TODO show filename
+        side @ sides/disk = abort" Disk full"
       then
     then
 
     \ Save the link to the next sector.
 
     file-pos @ file-length < if
-      track @ side @ 128 * +  raw-image-pos @ 510 + mgtc!
-      sector @  raw-image-pos @ 511 + mgtc!
+      track @ side @ 128 * +  previous-image-pos @ 510 + mgtc!
+      sector @  previous-image-pos @ 511 + mgtc!
     then
 
   repeat
@@ -403,6 +444,7 @@ variable copy-len       \ size of the copied chunk
 : file>mgt  ( ca len -- )
   \ Copy a file to the disk image, if there's a free directory entry.
   \ ca len = filename
+  \ cr ." ------------------------------------------------" \ XXX INFORMER
   free-entry? if  (file>mgt)
   else  abort" Too many files for MGT format"  then
   ;
@@ -428,9 +470,9 @@ variable copy-len       \ size of the copied chunk
   cr ." The next parameters are files to be added to the disk image"
   cr ." (shell patterns can be used)." cr
   cr ." Examples:" cr
-  command ."  mynewdiskimage myfile.bin"
-  command ."  mynewdiskimage myfile1.bin myfile2.txt"
-  command ."  mynewdiskimage img*.png data??.*"
+  command ."  my_file.mgt myfile.bin"
+  command ."  my_files myfile1.bin myfile2.txt"
+  command ."  data.mgt *.dat data??.*"
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -444,4 +486,4 @@ variable copy-len       \ size of the copied chunk
   check get-image-filename files>image image>file
   ;
 
-run  bye
+run bye
