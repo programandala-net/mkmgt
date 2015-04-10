@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-\ Version A-00-201504102349 (first working version)
+\ Version A-00-201504110108
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -25,20 +25,24 @@
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Acknowledgements
 
-\ Written in Forth with Gforth
+\ mkmgt is written in Forth with Gforth:
 \   http://gnu.org/software/gforth
 \
-\ MGT disk image algorithms adapted from:
+\ MGT disk image algorithms were adapted from:
 \   pyz80 by Andrew Collier, version 1.2 2-Feb-2009
 \   http://www.intensity.org.uk/samcoupe/pyz80.html
 
-\ Information on the MGT filesystem retrieved from:
+\ Information on the MGT filesystem was retrieved from:
 \   http://scratchpad.wikia.com/wiki/MGT_filesystem
+
+\ Information on the TAP file format was retrieved
+\ from the "Z80" ZX Spectrum emulator's documentation
+\ XXX TODO author
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ History
 
-\ 2015-04-10: Start. First working version.
+\ 2015-04-10: Start. First working version: A-00-201504102349.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
@@ -165,19 +169,52 @@ image /image erase
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Files
 
-: -filename  ( a -- )
-  \ Clear a DOS filename in the disk image.
-  \ a = address in the disk image
-  /filename blank
-  ;
-
 : filename!  ( ca len +n -- )
   \ Store a DOS filename into the disk image.
   \ ca len = filename
   \ +n = disk image position
-  image+ dup -filename
-  >r basename /filename min
-  r> swap move
+  image+ dup >r /filename blank r> /filename move
+  ;
+
+: tape-header+  ( n -- a )
+  \ Convert a position in the tape header to its actual address.
+  \ XXX TODO adapt to TAP files containing several files.
+  \ XXX TODO rename
+  file-contents 2@ drop +
+  ;
+: dos-filename  ( -- ca len )
+  \ DOS filename of the current input file.
+  \ ca len = filename
+  tap-file @ if    4 tape-header+  /filename
+             else  input-filename$ $@ basename /filename min  then
+  ;
+
+: (tape-header-id)  ( -- n )
+  \ Tape header id of the current input file, that is TAP file.
+  3 tape-header+ c@
+  ;
+: tape-header-id  ( -- n )
+  \ Tape header id of the current input file.
+  \ The tape header id is: 0 for a BASIC program, 1 for a number
+  \ array, 2 for a character array, or 3 for a code file. A SCREEN$
+  \ file is regarded as a code file with start address 16384 and
+  \ length 6912 decimal.
+  tap-file @ if  (tape-header-id)  else  3  then
+  ;
+: file-type  ( -- n )
+  \ File type of the current input file.
+  \ File types:
+  \   0: Erased            1: ZX BASIC    2: ZX numeric array
+  \   3: ZX string array   4: ZX code     5: ZX 48K snapshot
+  \   6: ZX Microdrive     7: ZX screen   8: Special
+  \   9: ZX 128K snapshot 10: Opentype   11: ZX execute
+  tap-file @ if  (tape-header-id) 1+  else  4  then
+  ;
+: start-address  ( -- a )
+  tap-file @ if  14 tape-header+ z80@  else  0  then
+  ;
+: autostart  ( -- n )
+  tap-file @ if  14 tape-header+ z80@  else  0  then
   ;
 
 variable sectors/file  \ number of sectors used by the current file
@@ -185,29 +222,33 @@ variable starting-side
 variable starting-track
 variable starting-sector
 
-variable filename$  \ filename of the current file (dinamyc string)
+variable input-filename$  \ filename of the current file (dinamyc string)
 variable entry-pos  \ directory entry position in the disk image
 
 2variable file-contents  \ contents of the current file (memory zone)
 
-\ XXX OLD
-\ : file-length  ( ca len -- n )
-\   \ Get the length of a file.
-\   \ ca len = filename with path
-\   r/o open-file throw
-\   dup file-size throw d>s
-\   swap close-file throw
-\   ;
+\ The `tap-file` variable is zero when the current file is not
+\ extracted from a TAP file; otherwise it holds the ordinal number of
+\ the actual file inside the TAP file. Thus it is used as a flag and
+\ as a counter.
+variable tap-file
 
 : file-length  ( -- n )
   \ Length of the current file.
-  file-contents 2@ nip
+  \ XXX TODO factor
+  file-contents 2@
+  tap-file @
+  if    drop 13 + z80@  \ get the length stored in the TAP header
+  else  nip             \ the length is that of the whole file
+  then
   ;
 
 : file+  ( +n -- a )
   \ Convert a position in the current file
   \ to its actual memory address.
+  \ XXX TODO factor with tape-header+
   file-contents 2@ drop +
+  tap-file @ if  24 +  then  \ skip the TAP file header
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -250,31 +291,17 @@ variable sectors-already-used
 
   \ dup -directory-entry \ XXX not used
 
-  entry-pos !  filename$ $!
+  entry-pos !  input-filename$ $!
 
   \ Set the file type
   \ (position 0 of the directory entry).
 
-  \ File types:
-  \ 0: Erased
-  \ 1: ZX BASIC
-  \ 2: ZX numeric array
-  \ 3: ZX string array
-  \ 4: ZX code
-  \ 5: ZX 48K snapshot
-  \ 6: ZX Microdrive
-  \ 7: ZX screen
-  \ 8: Special
-  \ 9: ZX 128K snapshot
-  \ 10: Opentype
-  \ 11: ZX execute
-
-  4 entry-pos @ mgtc!
+  file-type entry-pos @ mgtc!
 
   \ Store the filename
   \ (positions 1-10 of the directory entry).
 
-  filename$ $@ entry-pos @ 1+ filename!
+  dos-filename entry-pos @ 1+ filename!
 
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
@@ -285,7 +312,7 @@ variable sectors-already-used
   file-length /file-header + 510 / 1+  dup sectors/file !
   \ dup cr ." sectors used by the new file=" . \ XXX INFORMER
   \    cr ." sectors already used=" sectors-already-used ? \ XXX INFORMER
-  entry-pos @ 11 + ~~ mgt!be
+  entry-pos @ 11 + mgt!be
 
   \ Calculate the starting side, track and sector of the file.
 
@@ -311,7 +338,7 @@ variable sectors-already-used
   \ track 4, sector 9. The msb of byte 1 corresponds to track 5,
   \ sector 6.
 
-  begin  sectors/file @  while
+  sectors/file @  0 ?do
 
     \ XXX -- original Python code:
     \ image[dirpos+15 + sectors_already_used/8] |= (1 << (sectors_already_used & 7))
@@ -322,9 +349,8 @@ variable sectors-already-used
     or swap c!  \ update the map position
 
     1 sectors-already-used +!
-    -1 sectors/file +!
 
-  repeat
+  loop
 
   \ Set the GDOS header
   \ (positions 210-219 of the directory entry).
@@ -338,11 +364,15 @@ variable sectors-already-used
   \ 216-217: Type specific.
   \ 218-219: Autostart line/address.
 
-  3 entry-pos @ 211 + mgtc!
-  file-length entry-pos @ 212 + mgt!
+  tape-header-id      entry-pos @ 211 + mgtc!
+  file-length         entry-pos @ 212 + mgt!
+  start-address       entry-pos @ 214 + mgt!
+  autostart           entry-pos @ 218 + mgt!
 
-  \ This is what GDOS does for code files, not sure why:
-  $FFFF entry-pos @ 216 + mgt!
+  tap-file @ 0= if
+    \ This is what GDOS does for code files, not sure why:
+    $FFFF entry-pos @ 216 + mgt!
+  then
 
   ;
 
@@ -429,29 +459,31 @@ variable start-of-file       \ flag for the first copied chunk
   image /image image-filename$ $@ unslurp-file
   ;
 
-: (file>mgt)  ( ca len +n -- )
+: (file>image)  ( ca len +n -- )
 
   \ Copy a file to the disk image.
 
   \ ca len = filename
   \ +n = disk image position of a free directory entry
 
-  >r  2dup type cr  2dup slurp-file file-contents 2!
+  >r  2dup type cr
+  2dup s" .tap" ends? tap-file !
+  2dup slurp-file file-contents 2!
   r> directory-entry save-file
   file-contents 2@ drop free throw
   ;
 
-: file>mgt  ( ca len -- )
+: file>image  ( ca len -- )
   \ Copy a file to the disk image, if there's a free directory entry.
   \ ca len = filename
   \ cr ." ------------------------------------------------" \ XXX INFORMER
-  free-entry? if  (file>mgt)
+  free-entry? if  (file>image)
   else  abort" Too many files for MGT format"  then
   ;
 
 : files>image  ( -- )
   \ Copy the parameter files to the disk image.
-  argc @ 2 do  i arg file>mgt  loop
+  argc @ 2 do  i arg file>image  loop
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
