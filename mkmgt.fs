@@ -1,6 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
+\ Version A-00-201504101415
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -40,6 +41,13 @@
 \ 2015-04-10: start.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ To-do
+
+\ Copy TAP files and use the information from their headers.
+
+\ Add files to an existent disk images.
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Requirements
 
 require string.fs \ Gforth dynamic strings
@@ -55,26 +63,34 @@ require string.fs \ Gforth dynamic strings
   2over  dup 3 pick - /string  compare 0=
   ;
 
+: unslurp-file  ( ca1 len1 ca2 len2 -- )
+  \ ca1 len1 = content to write to the file
+  \ ca2 len2 = filename
+  w/o create-file throw >r
+  r@ write-file throw
+  r> close-file throw
+  ;
+
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Disk image
 
 \ ----------------------------------------------
 \ Data
 
-variable mgt-filename$
+variable image-filename$
 
 2   constant sides/disk
 80  constant tracks/side
 10  constant sectors/track
 512 constant bytes/sector
 80  constant files/disk
-10  constant /filename
+10  constant /filename  \ max length of DOS filenames
 
 sides/disk tracks/side sectors/track bytes/sector * * *
-constant bytes/image
+constant /image  \ length of the disk image
 
-bytes/image allocate throw constant image
-image bytes/image erase
+/image allocate throw constant image
+image /image erase
 
 \ ----------------------------------------------
 \ Converters
@@ -105,7 +121,7 @@ image bytes/image erase
   ;
 
 \ ----------------------------------------------
-\ 16-bit fetch and store
+\ Fetch and store
 
 : @z80 ( a -- n )
   \ Fetch a 16-bit value with Z80 format: LSB first.
@@ -114,20 +130,17 @@ image bytes/image erase
 : !z80 ( n a -- )
   \ Store a 16-bit value with Z80 format: LSB first.
   2dup swap 256 mod swap c!
-  swap 256 / swap c!
+  swap 256 / swap 1+ c!
   ;
 : @bigendian ( a -- n )
   \ Fetch a 16-bit value with big-endian format: MSB first.
   dup c@ 256 * swap c@ +
   ;
-: !bigendian ( a -- n )
+: !bigendian ( n a -- )
   \ Store a 16-bit value with big-endian format: MSB first.
   2dup swap 256 / swap c!
-  swap 256 mod swap c!
+  swap 256 mod swap 1+ c!
   ;
-
-\ ----------------------------------------------
-\ Disk image fetch and store
 
 : mgtc@   ( +n -- 8b )   image+ c@  ;
 : mgtc!   ( 8b +n -- )   image+ c!  ;
@@ -136,8 +149,8 @@ image bytes/image erase
 : mgt!    ( 16b +n -- )  image+ !z80  ;
 : mgt!be  ( +n -- 16b )  image+ !bigendian  ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-\ Parameters
+\ ----------------------------------------------
+\ File name
 
 : +extension  ( ca1 len1 -- ca2 len2 )
   \ Add the .mgt file extension to the given filename, if missing.
@@ -145,7 +158,7 @@ image bytes/image erase
   ;
 : get-image-filename  ( -- )
   \ Get the first parameter, the MGT disk image filename.
-  1 arg  +extension mgt-filename$ $!
+  1 arg  +extension image-filename$ $!
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -218,7 +231,7 @@ variable sectors-already-used
 
   \ Create a directory entry in the disk image.
 
-  \ ca len = filename
+  \ ca len = filename (host system format)
   \ +n = disk image position of a free directory entry
 
   entry-pos !  filename$ $!
@@ -250,7 +263,9 @@ variable sectors-already-used
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
 
-  file-length 9 + 510 / 1+  dup sectors/file !
+  \ XXX note: pyz80 adds 9 bytes to the file length,
+  \ because of the SAMDOS header.
+  file-length 510 / 1+  dup sectors/file !
   entry-pos @ 11 + mgt!be
 
   \ Calculate the starting side, track and sector of the file.
@@ -312,7 +327,6 @@ variable sectors-already-used
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Copying
 
-\ Variables used during the copying
 variable side
 variable track
 variable sector
@@ -368,6 +382,11 @@ variable copy-len       \ size of the copied chunk
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Main
+
+: image>file  ( -- )
+  \ Save the disk image to a file.
+  image /image image-filename$ $@ unslurp-file
+  ;
 
 : (file>mgt)  ( ca len +n -- )
 
