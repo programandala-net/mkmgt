@@ -1,12 +1,16 @@
 #! /usr/bin/env gforth
 
 \ bin2mgt.fs
-\
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
+\ http://programandala.net/en.program.bin2mgt.html
 \
 \ Written in Forth with Gforth
 \ by Marcos Cruz (programandala.net).
+\
+\ Algorithms based on:
+\   pyz80 by Andrew Collier, version 1.2 2-Feb-2009
+\   http://www.intensity.org.uk/samcoupe/pyz80.html
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ History
@@ -69,6 +73,11 @@ bytes/image allocate throw constant image
   \ Fetch a 16-bit value with big-endian format: MSB first.
   dup c@ 256 * swap c@ +
   ;
+: !bigendian ( a -- n )
+  \ Store a 16-bit value with big-endian format: MSB first.
+  2dup swap 256 / swap c!
+  swap 256 mod swap c!
+  ;
 
 \ Disk image fetch and store
 
@@ -77,6 +86,7 @@ bytes/image allocate throw constant image
 : mgt@    ( +n -- 16b )  image + @z80  ;
 : mgt@be  ( +n -- 16b )  image + @bigendian  ;
 : mgt!    ( 16b +n -- )  image + !z80  ;
+: mgt!be  ( +n -- 16b )  image + !bigendian  ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Parameters
@@ -94,7 +104,7 @@ bytes/image allocate throw constant image
 
 variable sectors_already_used
 
-: free_dir_entry?  ( -- +n true | false ) 
+: free-entry?  ( -- +n true | false ) 
   false  \ default output
   sectors_already_used off
   files/disk 0 ?do
@@ -104,6 +114,17 @@ variable sectors_already_used
   loop
   ;
 
+: file-length  ( ca len -- n )
+  r/o open-file throw
+  dup file-size throw d>s
+  swap close-file throw
+  ;
+
+variable sectors/file
+variable starting_side
+variable starting_track
+variable starting_sector
+
 : (file>mgt)  ( ca len +n -- )
   \ Copy a file to the disk image.
   \ ca len = filename
@@ -111,13 +132,32 @@ variable sectors_already_used
   dup 9 mgtc!  \ code file type
 
   \ XXX TODO
-  \ nsectors = 1 + (filelength+9)/510
+  2dup file-length 9 + 510 / 1+ dup sectors/file !
+  11 img!be
+   
+  sectors_already_used @ 10 / 4 + dup
+  80 /    starting_side !
+  80 mod  starting_track !
+  sectors_already_used @ 10 mod 1+ starting_sector !
+
+  starting_track @ starting_side 128 and + 13 mgtc!
+  starting_sector @ 14 mgtc!
+
+  \ 15 - 209 sector address map
+  \ XXX TODO
+
+  \ GDOS header
+  \ XXX TODO
+
+  \ Save file
+  \ XXX TODO
 
   ;
+
 : file>mgt  ( ca len -- )
   \ Copy a file to the disk image, if there's a free directory entry.
   \ ca len = filename
-  free-dir-entry? if  (file>mgt)
+  free-entry? if  (file>mgt)
   else  abort" Too many files for MGT format"  then
   ;
 : files>mgt  ( -- )
@@ -135,11 +175,11 @@ variable sectors_already_used
 : usage  ( -- )
   \ Show the usage instructions.
   cr ." Usage:" cr
-  cr ." The first parameter is the MGT disk image file name."
-  cr ." Its extension '.mgt' will be automatically added or if missing."
+  cr ." The first parameter is the MGT disk image filename."
+  cr ." Its extension '.mgt' will be automatically added if missing."
   cr ." WARNING: If the file already exists, it will be overwritten." cr
-  cr ." The second parameter is a space separated list of files to be added to the disk image."
-  cr ." Shell patterns can be used." cr
+  cr ." The next parameters are files to be added to the disk image"
+  cr ." (shell patterns can be used)." cr
   cr ." Examples:" cr
   command ."  mynewdiskimage myfile.bin"
   command ."  mynewdiskimage myfile1.bin myfile2.txt"
