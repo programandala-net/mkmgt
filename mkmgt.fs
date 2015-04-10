@@ -30,6 +30,7 @@
 \ MGT disk image algorithms adapted from:
 \   pyz80 by Andrew Collier, version 1.2 2-Feb-2009
 \   http://www.intensity.org.uk/samcoupe/pyz80.html
+
 \ Information on the MGT filesystem retrieved from:
 \   http://scratchpad.wikia.com/wiki/MGT_filesystem
 
@@ -43,10 +44,22 @@
 
 require string.fs \ Gforth dynamic strings
 
-require galope/ends-question.fs  \ 'ends?'
+\ From the Galope library
+\ (http://programandala.net/en.program.galope.html):
+
+: ends? ( ca1 len1 ca2 len2 -- ca1 len1 wf )
+  \ Check end of string:
+  \ Is ca2 len2 the end of ca1 len1?
+  \ ca1 len1 = long string
+  \ ca2 len2 = end to check
+  2over  dup 3 pick - /string  compare 0=
+  ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Disk image
+
+\ ----------------------------------------------
+\ Data
 
 variable mgt-filename$
 
@@ -62,6 +75,9 @@ constant bytes/image
 
 bytes/image allocate throw constant image
 image bytes/image erase
+
+\ ----------------------------------------------
+\ Converters
 
 : geometry>pos  ( track side sector -- +n )
   \ Convert a track, a side and a sector
@@ -82,6 +98,15 @@ image bytes/image erase
   r> 2 mod 256 * +
   ;
 
+: image+  ( +n -- a )
+  \ Convert a position in the disk image
+  \ to its actual memory address.
+  image +
+  ;
+
+\ ----------------------------------------------
+\ 16-bit fetch and store
+
 : @z80 ( a -- n )
   \ Fetch a 16-bit value with Z80 format: LSB first.
   dup c@ swap c@ 256 * + 
@@ -101,9 +126,9 @@ image bytes/image erase
   swap 256 mod swap c!
   ;
 
+\ ----------------------------------------------
 \ Disk image fetch and store
 
-: image+  ( +n -- a )    image +  ;
 : mgtc@   ( +n -- 8b )   image+ c@  ;
 : mgtc!   ( 8b +n -- )   image+ c!  ;
 : mgt@    ( +n -- 16b )  image+ @z80  ;
@@ -118,9 +143,9 @@ image bytes/image erase
   \ Add the .mgt file extension to the given filename, if missing.
   s" .mgt" ends? 0= if  s" .mgt" s+  then
   ;
-: get-mgt-filename  ( -- )
+: get-image-filename  ( -- )
   \ Get the first parameter, the MGT disk image filename.
-  1 arg  +extension mgt-filename $!
+  1 arg  +extension mgt-filename$ $!
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -132,14 +157,47 @@ image bytes/image erase
   /filename blank
   ;
 
-: filename!  ( ca len a -- )
+: filename!  ( ca len +n -- )
   \ Store a DOS filename into the disk image.
   \ ca len = filename
-  \ a = address in the disk image
-  dup -filename
+  \ +n = disk image position
+  image+ dup -filename
   >r basename /filename min
   r> swap move
   ;
+
+variable sectors/file  \ number of sectors used by the current file
+variable starting-side
+variable starting-track
+variable starting-sector
+
+variable filename$  \ filename of the current file (dinamyc string)
+variable entry-pos  \ directory entry position in the disk image
+
+2variable file-contents  \ contents of the current file (memory zone)
+
+\ XXX OLD
+\ : file-length  ( ca len -- n )
+\   \ Get the length of a file.
+\   \ ca len = filename with path
+\   r/o open-file throw
+\   dup file-size throw d>s
+\   swap close-file throw
+\   ;
+
+: file-length  ( -- n )
+  \ Length of the current file.
+  file-contents 2@ nip
+  ;
+
+: file+  ( +n -- a )
+  \ Convert a position in the current file
+  \ to its actual memory address.
+  file-contents 2@ drop +
+  ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Directory entry
 
 variable sectors-already-used
 
@@ -156,35 +214,33 @@ variable sectors-already-used
   loop
   ;
 
-: file-length  ( ca len -- n )
-  \ Get the length of a file.
-  \ ca len = filename with path
-  r/o open-file throw
-  dup file-size throw d>s
-  swap close-file throw
-  ;
+: directory-entry  ( ca len +n -- )
 
-variable sectors/file  \ number of sectors used by the current file
-variable starting-side
-variable starting-track
-variable starting-sector
-
-variable filename$
-variable entry-pos
-
-: (file>mgt)  ( ca len +n -- )
-
-  \ Copy a file to the disk image.
+  \ Create a directory entry in the disk image.
 
   \ ca len = filename
-  \ +n = image position of a free directory entry
+  \ +n = disk image position of a free directory entry
 
   entry-pos !  filename$ $!
-  
-  \ Set the code file type id (9)
+
+  \ Set the file type
   \ (position 0 of the directory entry).
 
-  9 entry-pos @ mgtc!
+  \ File types:
+  \ 0: Erased
+  \ 1: ZX BASIC
+  \ 2: ZX numeric array
+  \ 3: ZX string array
+  \ 4: ZX code
+  \ 5: ZX 48K snapshot
+  \ 6: ZX Microdrive
+  \ 7: ZX screen
+  \ 8: Special
+  \ 9: ZX 128K snapshot
+  \ 10: Opentype
+  \ 11: ZX execute
+
+  4 entry-pos @ mgtc!
 
   \ Store the filename
   \ (positions 1-10 of the directory entry).
@@ -194,8 +250,8 @@ variable entry-pos
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
 
-  filename$ $@ file-length 9 + 510 / 1+  dup sectors/file !
-  entry-pos @ 11 + img!be
+  file-length 9 + 510 / 1+  dup sectors/file !
+  entry-pos @ 11 + mgt!be
 
   \ Calculate the starting side, track and sector of the file.
 
@@ -226,8 +282,8 @@ variable entry-pos
     \ XXX -- original Python code:
     \ image[dirpos+15 + sectors_already_used/8] |= (1 << (sectors_already_used & 7))
 
-    entry-pos @  15 +  sectors-already-used @ 8 / +  \ map address
-    dup c@  \ current content
+    entry-pos @  15 +  sectors-already-used @ 8 / +  \ map position
+    image+ dup c@  \ current content
     1 sectors-already-used @ %111 and lshift  \ bit to be set
     or swap c!  \ update
 
@@ -237,14 +293,92 @@ variable entry-pos
   repeat
 
   \ Set the GDOS header
-  \ (positions 210-219 of the directory entry)
+  \ (positions 210-219 of the directory entry).
 
-  \ XXX TODO
+  \ 210: For opentype files, the number of 64K blocks in the file.
+  \ 211: Tape header ID for ZX Spectrum files: 0 for BASIC, 1 for
+  \ numeric arrays, 2 for string arrays and 3 for code.
+  \ 212-213: File length. For opentype files, the length of the last
+  \ block.
+  \ 214-215: Start address.
+  \ 216-217: Type specific.
+  \ 218-219: Autostart line/address.
 
+  3 entry-pos @ 211 + mgtc!
+  file-length entry-pos @ 212 + mgt!
 
-  \ Save file
-  \ XXX TODO
+  ;
 
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Copying
+
+\ Variables used during the copying
+variable side
+variable track
+variable sector
+variable file-pos       \ position in the current file contents
+variable image-pos      \ position in the disk image
+variable raw-image-pos  \ position in the disk image
+variable copy-len       \ size of the copied chunk
+
+: save-file  ( -- )
+
+  \ Save the current file to the disk image.
+
+  starting-side @ side !
+  starting-track @ track !
+  starting-sector @ sector !
+  0 file-pos !
+
+  begin  file-pos @ file-length <  while
+
+    track @ side @ sector @ geometry>pos
+    dup raw-image-pos !  image-pos !
+    file-length file-pos @ - dup 509 >
+    if    drop 510 
+    then  copy-len !
+
+    \ Copy the data.
+
+    file-pos @ file+  image-pos @ image+  copy-len @ move
+
+    \ Update the sector.
+
+    copy-len @ file-pos +!
+
+    1 sector +!
+    sector @ 11 = if
+      1 sector !  1 track +!
+      track @ 80 = if
+        0 track !  1 side +!
+        side @ 2 = abort" Disk full" \ XXX TODO show filename
+      then
+    then
+
+    \ Save the link to the next sector.
+
+    file-pos @ file-length < if
+      track @ side @ 128 * +  raw-image-pos @ 510 + mgtc!
+      sector @  raw-image-pos @ 511 + mgtc!
+    then
+
+  repeat
+
+  ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Main
+
+: (file>mgt)  ( ca len +n -- )
+
+  \ Copy a file to the disk image.
+
+  \ ca len = filename
+  \ +n = disk image position of a free directory entry
+
+  >r  2dup type cr  2dup slurp-file file-contents 2!
+  r> directory-entry save-file
+  file-contents 2@ drop free throw
   ;
 
 : file>mgt  ( ca len -- )
@@ -253,17 +387,18 @@ variable entry-pos
   free-entry? if  (file>mgt)
   else  abort" Too many files for MGT format"  then
   ;
-: files>mgt  ( -- )
+
+: files>image  ( -- )
   \ Copy the parameter files to the disk image.
-  argc @ 2 ?do  i arg file>mgt  loop
+  argc @ 2 do  i arg file>mgt  loop
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Usage
 
-: .command  ( -- )
+: command  ( -- )
   \ Print the name of this file.
-  cr  s"   bin2mgt.fs" type
+  cr  s"   mkmgt.fs" type
   ;
 : usage  ( -- )
   \ Show the usage instructions.
@@ -287,7 +422,7 @@ variable entry-pos
   argc @ 3 < if  usage bye  then
   ;
 : run  ( -- )
-  check get-mgt-filename files>mgt
+  check get-image-filename files>image image>file
   ;
 
-\ run  bye
+run  bye
