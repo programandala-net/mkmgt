@@ -1,6 +1,6 @@
 #! /usr/bin/env gforth
 
-\ mkmgt.fs
+\ mkmgt
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -8,18 +8,18 @@
 \
 \ Copyright (C) 2015 Marcos Cruz (programandala.net)
 
-\ This program is free software; you can redistribute it and/or modify
-\ it under the terms of the GNU General Public License as published by
+\ mkmgt is free software; you can redistribute it and/or modify it
+\ under the terms of the GNU General Public License as published by
 \ the Free Software Foundation; either version 3 of the License, or
 \ (at your option) any later version.
 \
-\ This program is distributed in the hope that it will be useful, but
-\ WITHOUT ANY WARRANTY; without even the implied warranty of
-\ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-\ General Public License for more details.
+\ mkmgt is distributed in the hope that it will be useful, but WITHOUT
+\ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+\ or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+\ License for more details.
 \
 \ You should have received a copy of the GNU General Public License
-\ along with this program; if not, see <http://gnu.org/licenses>.
+\ along with mkmgt; if not, see <http://gnu.org/licenses>.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Acknowledgements
