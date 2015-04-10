@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-\ Version A-00-201504110108
+\ Version A-00-201504110124
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -36,7 +36,7 @@
 \   http://scratchpad.wikia.com/wiki/MGT_filesystem
 
 \ Information on the TAP file format was retrieved
-\ from the "Z80" ZX Spectrum emulator's documentation
+\ from the "Z80" ZX Spectrum emulator's documentation.
 \ XXX TODO author
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -130,19 +130,19 @@ image /image erase
 \ ----------------------------------------------
 \ Fetch and store
 
-: @z80 ( a -- n )
+: @z80 ( a -- 16b )
   \ Fetch a 16-bit value with Z80 format: LSB first.
   dup c@ swap 1+ c@ 256 * +
   ;
-: !z80 ( n a -- )
+: !z80 ( 16b a -- )
   \ Store a 16-bit value with Z80 format: LSB first.
   swap 2dup  256 mod swap c!  256 / swap 1+ c!
   ;
-: @bigendian ( a -- n )
+: @big-endian ( a -- 16b )
   \ Fetch a 16-bit value with big-endian format: MSB first.
   dup c@ 256 * swap 1+ c@ +
   ;
-: !bigendian ( n a -- )
+: !big-endian ( 16b a -- )
   \ Store a 16-bit value with big-endian format: MSB first.
   swap 2dup  256 / swap c!  256 mod swap 1+ c!
   ;
@@ -150,9 +150,9 @@ image /image erase
 : mgtc@   ( +n -- 8b )   image+ c@  ;
 : mgtc!   ( 8b +n -- )   image+ c!  ;
 : mgt@    ( +n -- 16b )  image+ @z80  ;
-: mgt@be  ( +n -- 16b )  image+ @bigendian  ;
+: mgt@be  ( +n -- 16b )  image+ @big-endian  ;
 : mgt!    ( 16b +n -- )  image+ !z80  ;
-: mgt!be  ( +n -- 16b )  image+ !bigendian  ;
+: mgt!be  ( +n -- 16b )  image+ !big-endian  ;
 
 \ ----------------------------------------------
 \ File name
@@ -169,11 +169,28 @@ image /image erase
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Files
 
+variable sectors/file  \ number of sectors used by the current file
+variable starting-side
+variable starting-track
+variable starting-sector
+
+variable input-filename$  \ filename of the current file (dinamyc string)
+variable entry-pos  \ directory entry position in the disk image
+
+2variable file-contents  \ contents of the current file (memory zone)
+
+\ The `tap-file` variable is zero when the current file is not
+\ extracted from a TAP file; otherwise it holds the ordinal number of
+\ the actual file inside the TAP file. Thus it is used as a flag and
+\ as a counter.
+
+variable tap-file
+
 : filename!  ( ca len +n -- )
   \ Store a DOS filename into the disk image.
   \ ca len = filename
   \ +n = disk image position
-  image+ dup >r /filename blank r> /filename move
+  image+ dup >r /filename blank r> swap move
   ;
 
 : tape-header+  ( n -- a )
@@ -211,34 +228,18 @@ image /image erase
   tap-file @ if  (tape-header-id) 1+  else  4  then
   ;
 : start-address  ( -- a )
-  tap-file @ if  14 tape-header+ z80@  else  0  then
+  tap-file @ if  14 tape-header+ @z80  else  0  then
   ;
 : autostart  ( -- n )
-  tap-file @ if  14 tape-header+ z80@  else  0  then
+  tap-file @ if  14 tape-header+ @z80  else  0  then
   ;
-
-variable sectors/file  \ number of sectors used by the current file
-variable starting-side
-variable starting-track
-variable starting-sector
-
-variable input-filename$  \ filename of the current file (dinamyc string)
-variable entry-pos  \ directory entry position in the disk image
-
-2variable file-contents  \ contents of the current file (memory zone)
-
-\ The `tap-file` variable is zero when the current file is not
-\ extracted from a TAP file; otherwise it holds the ordinal number of
-\ the actual file inside the TAP file. Thus it is used as a flag and
-\ as a counter.
-variable tap-file
 
 : file-length  ( -- n )
   \ Length of the current file.
   \ XXX TODO factor
   file-contents 2@
   tap-file @
-  if    drop 13 + z80@  \ get the length stored in the TAP header
+  if    drop 13 + @z80  \ get the length stored in the TAP header
   else  nip             \ the length is that of the whole file
   then
   ;
@@ -364,6 +365,7 @@ variable sectors-already-used
   \ 216-217: Type specific.
   \ 218-219: Autostart line/address.
 
+  \ XXX TODO -- finish
   tape-header-id      entry-pos @ 211 + mgtc!
   file-length         entry-pos @ 212 + mgt!
   start-address       entry-pos @ 214 + mgt!
