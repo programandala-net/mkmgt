@@ -199,12 +199,13 @@ variable tap-file
   \ XXX TODO rename
   file-contents 2@ drop +
   ;
-: dos-filename  ( -- ca len )
-  \ DOS filename of the current input file.
-  \ ca len = filename
-  tap-file @ if    4 tape-header+  /filename
-             else  input-filename$ $@ basename /filename min  then
-  ;
+
+  \ The tape header id is:
+  \ 0 for a BASIC program;
+  \ 1 for a number array;
+  \ 2 for a character array;
+  \ 3 for a code file.
+  \ A SCREEN$ file is regarded as a code file with start address 16384 and length 6912 decimal.
 
 : (tape-header-id)  ( -- n )
   \ Tape header id of the current input file, that is TAP file.
@@ -212,37 +213,41 @@ variable tap-file
   ;
 : tape-header-id  ( -- n )
   \ Tape header id of the current input file.
-  \ The tape header id is: 0 for a BASIC program, 1 for a number
-  \ array, 2 for a character array, or 3 for a code file. A SCREEN$
-  \ file is regarded as a code file with start address 16384 and
-  \ length 6912 decimal.
   tap-file @ if  (tape-header-id)  else  3  then
   ;
 : file-type  ( -- n )
-  \ File type of the current input file.
-  \ File types:
+  \ DOS file type of the current input file.
+  \ DOS file types:
   \   0: Erased            1: ZX BASIC    2: ZX numeric array
   \   3: ZX string array   4: ZX code     5: ZX 48K snapshot
   \   6: ZX Microdrive     7: ZX screen   8: Special
   \   9: ZX 128K snapshot 10: Opentype   11: ZX execute
   tap-file @ if  (tape-header-id) 1+  else  4  then
   ;
-: start-address  ( -- a )
-  tap-file @ if  14 tape-header+ @z80  else  0  then
+: dos-filename  ( -- ca len )
+  \ DOS filename of the current input file.
+  \ ca len = filename
+  tap-file @ if    4 tape-header+  /filename
+             else  input-filename$ $@ basename /filename min  then
   ;
-: autostart  ( -- n )
-  tap-file @ if  14 tape-header+ @z80  else  0  then
-  ;
-
 : file-length  ( -- n )
   \ Length of the current file.
   \ XXX TODO factor
-  file-contents 2@
-  tap-file @
-  if    drop 13 + @z80  \ get the length stored in the TAP header
-  else  nip             \ the length is that of the whole file
-  then
+  \ XXX confirmed
+  file-contents 2@  tap-file @ if  drop 14 + @z80  else  nip  then
   ;
+: start  ( -- n )
+  \ Autostart line (for BASIC programs) or start address (for code files)
+  \ XXX confirmed
+  tap-file @ if  16 tape-header+ @z80  else  0  then
+  ;
+: start2  ( -- n )
+  \ If it's a BASIC program, return the start of the variable area
+  \ relative to the start of the program; ff it's a code file, return 32768.
+  \ XXX confirmed
+  tap-file @ if  18 tape-header+ @z80 else  32768  then
+  ;
+
 
 : file+  ( +n -- a )
   \ Convert a position in the current file
@@ -368,8 +373,8 @@ variable sectors-already-used
   \ XXX TODO -- finish
   tape-header-id      entry-pos @ 211 + mgtc!
   file-length         entry-pos @ 212 + mgt!
-  start-address       entry-pos @ 214 + mgt!
-  autostart           entry-pos @ 218 + mgt!
+  start               entry-pos @ 214 + mgt!
+  \ autostart           entry-pos @ 218 + mgt!
 
   tap-file @ 0= if
     \ This is what GDOS does for code files, not sure why:
