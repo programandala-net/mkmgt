@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-\ Version A-00-2015041102126
+s" A-01-201504120034" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -25,9 +25,10 @@
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Acknowledgements
 
-\ mkmgt is written in Forth with Gforth:
+\ mkmgt is written in Forth with Gforth 0.7.3 (by Anton Ertl, Bernd
+\ Paysan et al.):
 \   http://gnu.org/software/gforth
-\
+
 \ MGT disk image algorithms were adapted from:
 \   pyz80 by Andrew Collier, version 1.2 2-Feb-2009
 \   http://www.intensity.org.uk/samcoupe/pyz80.html
@@ -35,21 +36,28 @@
 \ Information on the MGT filesystem was retrieved from:
 \   http://scratchpad.wikia.com/wiki/MGT_filesystem
 
-\ Information on the TAP file format was retrieved
-\ from the "Z80" ZX Spectrum emulator's documentation.
-\ XXX TODO author
+\ Information on the TAP file format was retrieved from the
+\ documentation of the "Z80" ZX Spectrum emulator (1988-1999 by Gerton
+\ Lunter).  XXX TODO URL
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ History
 
 \ 2015-04-10: Start. First working version: A-00-201504102349.
+\
+\ 2015-04-11: Support for TAP files (only one ZX Spectrum file per TAP
+\ file). Version A-01-2015041102147.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
 
-\ Copy TAP files and use the information from their headers.
+\ Support for TAP files with more than one ZX Spectrum file.
 
 \ Add files to an existent disk image.
+\
+\ Options to force names of files contained in a TAP file:
+\ --host-names = force the TAP file name
+\ --host-base-names = force the TAP file name without extension
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Requirements
@@ -68,6 +76,7 @@ require string.fs \ Gforth dynamic strings
   ;
 
 : unslurp-file  ( ca1 len1 ca2 len2 -- )
+  \ Save a memory region to a file.
   \ ca1 len1 = content to write to the file
   \ ca2 len2 = filename
   w/o create-file throw >r
@@ -87,11 +96,11 @@ variable image-filename$
  80 constant tracks/side    \ tracks (0..79)
  10 constant sectors/track  \ sectors (1..10)
 512 constant bytes/sector   \ sector size
-510 constant data/sector    \ actual data saved into a sector
+510 constant data/sector    \ actual data bytes saved into a sector
  80 constant files/disk     \ max number of directory entries (1..80)
  10 constant /filename      \ max length of DOS filenames
   9 constant /file-header   \ length of the file header
-256 constant /entry         \ size of a directory entry
+256 constant /entry         \ size of a directory entry  \ XXX not used
 
 sides/disk tracks/side sectors/track bytes/sector * * *
 constant /image  \ length of the disk image
@@ -112,9 +121,10 @@ image /image erase
   ;
 
 : entry>pos  ( entry -- +n )
-  \ Convert a directory entry (0..79)
+  \ Convert a directory entry
   \ to its position in the disk image.
-  >r r@ 20 /       \ track
+  \ entry = 0..79 (instead of the usual range 1..80)
+  dup >r 20 /       \ track
   0                \ side
   r@ 20 mod 2/ 1+  \ sector
   geometry>pos
@@ -155,19 +165,23 @@ image /image erase
 : mgt!be  ( +n -- 16b )  image+ !big-endian  ;
 
 \ ----------------------------------------------
-\ File name
+\ File
 
 : +extension  ( ca1 len1 -- ca2 len2 )
   \ Add the .mgt file extension to the given filename, if missing.
   s" .mgt" ends? 0= if  s" .mgt" s+  then
   ;
 : get-image-filename  ( -- )
-  \ Get the first parameter, the MGT disk image filename.
+  \ Get the first parameter, the disk image filename.
   1 arg  +extension image-filename$ $!
+  ;
+: save-image  ( -- )
+  \ Save the disk image to a file.
+  image /image image-filename$ $@ unslurp-file
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-\ Files
+\ Input files
 
 variable sectors/file  \ number of sectors used by the current file
 variable starting-side
@@ -180,10 +194,16 @@ variable entry-pos  \ directory entry position in the disk image
 : entry-pos+  ( n1 -- n2 )
   \ Convert a position in a directory entry
   \ to a position in the disk image.
-  entry-pos @ + 
+  entry-pos @ +
   ;
 
-2variable file-contents  \ contents of the current file (memory zone)
+2variable (file-contents)  \ contents of the current input file (memory zone)
+variable file-contents-pos \ position in the file contents (used for TAP files)
+
+: file-contents  ( -- ca len )
+  \ Contents of the current input file.
+  (file-contents) 2@ file-contents-pos @ /string
+  ;
 
 \ The `tap-file` variable is zero when the current file is not
 \ extracted from a TAP file; otherwise it holds the ordinal number of
@@ -203,7 +223,7 @@ variable tap-file
   \ Convert a position in the tape header to its actual address.
   \ XXX TODO adapt to TAP files containing several files.
   \ XXX TODO rename
-  file-contents 2@ drop +
+  file-contents drop +
   ;
 
   \ The tape header id is:
@@ -239,15 +259,15 @@ variable tap-file
 : file-length  ( -- n )
   \ Length of the current file.
   \ XXX TODO factor
-  file-contents 2@  tap-file @ if  drop 14 + @z80  else  nip  then
+  file-contents tap-file @ if  drop 14 + @z80  else  nip  then
   ;
 : start  ( -- n )
   \ Autostart line (for BASIC programs) or start address (for code files)
   tap-file @ if  16 tape-header+ @z80  else  0  then
   ;
 : start2  ( -- n )
-  \ If it's a BASIC program, return the start of the variable area
-  \ relative to the start of the program; ff it's a code file, return 32768.
+  \ If the current file is a BASIC program, return the start of the variable area
+  \ relative to the start of the program; if it's a code file, return 32768.
   tap-file @ if  18 tape-header+ @z80 else  32768  then
   ;
 
@@ -255,7 +275,7 @@ variable tap-file
   \ Convert a position in the current file
   \ to its actual memory address.
   \ XXX TODO factor with tape-header+
-  file-contents 2@ drop +
+  file-contents drop +
   tap-file @ if  24 +  then  \ skip the TAP file header
   ;
 
@@ -264,42 +284,25 @@ variable tap-file
 
 variable sectors-already-used
 
-: free-entry?  ( -- +n true | false ) 
+: free-entry?  ( -- +n true | false )
   \ Is there a free directory entry in the disk image?
   \ `sectors-already-used` is calculated in the process.
   \ +n = position in the disk image
   false  \ default output
   sectors-already-used off
   files/disk 0 ?do
-    i entry>pos
-    \ dup cr ." entry pos=" .  \ XXX INFORMER
-    dup mgtc@
-    if    11 + mgt@be
-          \ cr ." sectors used by the entry=" dup . \ XXX INFORMER
-          sectors-already-used +!
-          \ cr ." sectors already used=" sectors-already-used ? \ XXX INFORMER
-    else
-          swap 0= unloop exit  then
+    i entry>pos dup mgtc@
+    if    11 + mgt@be sectors-already-used +!
+    else  swap 0= unloop exit  then
   loop
   ;
 
-: -directory-entry  ( +n -- )
-  \ XXX not used
-  \ Erase a directory entry in the disk image.
-  \ +n = disk image position of a directory entry
-  image+ /entry 0xFF fill
-  ;
-
-: directory-entry  ( ca len +n -- )
+: make-directory-entry  ( -- )
 
   \ Create a directory entry in the disk image.
-
-  \ ca len = filename (host system format)
-  \ +n = disk image position of a free directory entry
-
-  \ dup -directory-entry \ XXX not used
-
-  entry-pos !  input-filename$ $!
+  \ Input variables:
+  \   entry-pos
+  \   input-filename$
 
   \ Set the file type
   \ (position 0 of the directory entry).
@@ -314,12 +317,13 @@ variable sectors-already-used
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
 
-  \ The file header (bytes 211-219 of the directory entry
-  \ is saved also at the start of the file for some file types).
+  \ The length of the file header (bytes 211-219 of the directory
+  \ entry is added because it's saved also at the start of the file
+  \ for some file types).
+  \ XXX TODO -- check if this must be done also with arrays.
 
-  file-length /file-header + 510 / 1+  dup sectors/file !
-  \ dup cr ." sectors used by the new file=" . \ XXX INFORMER
-  \    cr ." sectors already used=" sectors-already-used ? \ XXX INFORMER
+  file-length /file-header + 510 / 1+
+  dup sectors/file !
   11 entry-pos+ mgt!be
 
   \ Calculate the starting side, track and sector of the file.
@@ -348,9 +352,6 @@ variable sectors-already-used
 
   sectors/file @  0 ?do
 
-    \ XXX -- original Python code:
-    \ image[dirpos+15 + sectors_already_used/8] |= (1 << (sectors_already_used & 7))
-
     entry-pos @  15 +  sectors-already-used @ 8 / +  \ map position
     image+ dup c@  \ address and its current content
     1 sectors-already-used @ %111 and lshift  \ bit to be set
@@ -372,51 +373,128 @@ variable sectors-already-used
   \ 216-217: Type specific.
   \ 218-219: Autostart line/address.
 
-  \ XXX TODO -- finish
-
+  \ The tape header id and the file lenght are common to any input
+  \ file.
 
   tape-header-id      211 entry-pos+ mgtc!
   file-length         212 entry-pos+ mgt!
 
+  \ The rest of the GDOS header depends on the origin of the input
+  \ file (a host system file or a TAP file).
+
   tap-file @ if
-    tape-file-id case
+
+    \ The input file is a TAP file.
+
+    tape-header-id case
+
       0 of \ BASIC program
-        23755 214 entry-pos+ mgt!  \ start address
+        23755 214 entry-pos+ mgt!   \ start address
         start2 216 entry-pos+ mgt!  \ relative start of the variable area
-        start 218 entry-pos+ mgt!  \ autostart line
+        start 218 entry-pos+ mgt!   \ autostart line
       endof
+
       1 of  \ number array
         \ XXX TODO
       endof
+
       2 of \ character array
         \ XXX TODO
       endof
+
       3 of \ code file
         start 214 entry-pos+ mgt!  \ start address
         0xFFFF 216 entry-pos+ mgt!
       endof
+
     endcase
+
   else
+
+    \ The input file is a host system file, regarded as a code file.
     0xFFFF 216 entry-pos+ mgt!
+
   then
 
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-\ Copying
+\ Copying an input file
 
-variable side
-variable track
-variable sector
+variable side                \ current side of the disk
+variable track               \ current track of the disk
+variable sector              \ current sector of the disk
 variable file-pos            \ position in the current file contents
 variable image-pos           \ position in the disk image
-variable previous-image-pos  \ position in the disk image
-variable copy-len            \ size of the copied chunk
-variable start-of-file       \ flag for the first copied chunk
+variable previous-image-pos  \ previous position in the disk image
+variable /piece              \ size of the copied piece
+variable start-of-file       \ flag for the first copied piece
 
-: save-file  ( -- )
+: copy-file-contents-piece  ( -- )
 
-  \ Save the current file to the disk image.
+  \ Copy a piece (a sector) of the contents of the current input file
+  \ to the disk image.  The current input file can be a host system
+  \ file or a ZX Spectrum file included in a TAP file.
+
+  track @ side @ sector @ geometry>pos
+  dup previous-image-pos !  image-pos !
+
+  \ Calculate the length of the piece to be copied.
+
+  start-of-file @ if
+
+    \ Copy the GDOS file header from the directory entry.
+
+    \ XXX TODO -- confirm if this has to be done for all file types
+
+    211 entry-pos+ image+ image-pos @ image+ /file-header move
+
+    /file-header image-pos +!
+    data/sector /file-header - /piece !
+    start-of-file off
+
+  else
+
+    file-length file-pos @ - dup data/sector 1- >
+    if  drop data/sector  then  /piece !
+
+  then
+
+  \ Copy the data.
+
+  file-pos @ file+  image-pos @ image+  /piece @ move
+
+  \ Update the sector.
+
+  /piece @ file-pos +!
+
+  1 sector +!
+  sector @ sectors/track > if
+    1 sector !  1 track +!
+    track @ tracks/side = if
+      0 track !  1 side +!
+      side @ sides/disk = abort" Disk full"
+    then
+  then
+
+
+  file-pos @ file-length < if  \ not the last piece yet
+
+    \ Save the address of the next sector
+    \ into the the last two bytes (510 and 511) of the current one.
+
+    track @ side @ 128 * +  previous-image-pos @ 510 + mgtc!  \ track
+    sector @  previous-image-pos @ 511 + mgtc!                \ sector
+
+  then
+
+  ;
+
+: copy-file-contents  ( -- )
+
+  \ Copy the contents of the current input file to the disk image.
+  \ The current input file can be a host system file or a ZX Spectrum
+  \ file included in a TAP file.
 
   starting-side @ side !
   starting-track @ track !
@@ -425,99 +503,66 @@ variable start-of-file       \ flag for the first copied chunk
   start-of-file on
 
   begin  file-pos @ file-length <  while
-
-    track @ side @ sector @ geometry>pos
-    dup previous-image-pos !  image-pos !
-
-    \ Calculate the length of the chunk to be copied.
-
-    start-of-file @ if
-
-      \ Copy the file header from the directory entry.
-
-      211 entry-pos+ image+ image-pos @ image+ /file-header move
-
-      /file-header image-pos +!
-      data/sector /file-header - copy-len !
-      start-of-file off
-
-    else
-
-      file-length file-pos @ - dup data/sector 1- >
-      if    drop data/sector
-      then  copy-len !
-
-    then
-
-    \ Copy the data.
-
-    file-pos @ file+  image-pos @ image+  copy-len @ move
-
-    \ Update the sector.
-
-    copy-len @ file-pos +!
-
-    1 sector +!
-    sector @ sectors/track > if
-      1 sector !  1 track +!
-      track @ tracks/side = if
-        0 track !  1 side +!
-        side @ sides/disk = abort" Disk full"
-      then
-    then
-
-    \ Save the link to the next sector.
-
-    file-pos @ file-length < if
-      track @ side @ 128 * +  previous-image-pos @ 510 + mgtc!
-      sector @  previous-image-pos @ 511 + mgtc!
-    then
-
+    copy-file-contents-piece
   repeat
 
+  ;
+
+: copy-file  ( -- )
+  \ Copy the current input file to the disk image.  The current input
+  \ file can be a host system file or a ZX Spectrum file included in a
+  \ TAP file.
+  make-directory-entry  copy-file-contents
+  ;
+
+: empty-tap-file?  ( -- f )
+  \ Is the current TAP file empty?
+  \ XXX TODO
+  true
+  ;
+: copy-tap-file
+  \ Copy a TAP file to the disk image. It can include one or more ZX
+  \ Spectrum files.
+  begin  copy-file  empty-tap-file?  until
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Main
 
-: image>file  ( -- )
-  \ Save the disk image to a file.
-  image /image image-filename$ $@ unslurp-file
+: get-file  ( ca len -- )
+  \ Get the contents of an input file.
+  \ ca len = filename
+  slurp-file (file-contents) 2!  0 file-contents-pos !
+  ;
+: free-file  ( -- )
+  \ Free the space used by the input file.
+  (file-contents) 2@ drop free throw
   ;
 
 : (file>image)  ( ca len +n -- )
-
-  \ Copy a file to the disk image.
-
+  \ Copy an input file to the disk image.
   \ ca len = filename
   \ +n = disk image position of a free directory entry
-
-  >r  2dup type cr
-  2dup s" .tap" ends? tap-file !
-  2dup slurp-file file-contents 2!
-  r> directory-entry save-file
-  file-contents 2@ drop free throw
+  entry-pos !  2dup input-filename$ $!  2dup type cr  2dup get-file
+  s" .tap" ends?  dup abs tap-file !
+  if  copy-tap-file  else  copy-file  then  free-file
   ;
-
 : file>image  ( ca len -- )
-  \ Copy a file to the disk image, if there's a free directory entry.
+  \ Copy an input file to the disk image, if there's a free directory entry.
   \ ca len = filename
-  \ cr ." ------------------------------------------------" \ XXX INFORMER
-  free-entry? if  (file>image)
-  else  abort" Too many files for MGT format"  then
+  free-entry? if    (file>image)
+              else  abort" Too many files for MGT format"  then
   ;
-
 : files>image  ( -- )
-  \ Copy the parameter files to the disk image.
-  argc @ 2 do  i arg file>image  loop
+  \ Copy the input files to the disk image.
+  argc @ 2 ?do  i arg file>image  loop
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Usage
 
 : command  ( -- )
-  \ Print the name of this file.
-  cr  s"   mkmgt.fs" type
+  cr s"   mkmgt" type
   ;
 : usage  ( -- )
   \ Show the usage instructions.
@@ -541,7 +586,7 @@ variable start-of-file       \ flag for the first copied chunk
   argc @ 3 < if  usage bye  then
   ;
 : run  ( -- )
-  check get-image-filename files>image image>file
+  check get-image-filename files>image save-image
   ;
 
 run bye
