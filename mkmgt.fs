@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-\ Version A-00-201504110124
+\ Version A-00-2015041102126
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -177,6 +177,12 @@ variable starting-sector
 variable input-filename$  \ filename of the current file (dinamyc string)
 variable entry-pos  \ directory entry position in the disk image
 
+: entry-pos+  ( n1 -- n2 )
+  \ Convert a position in a directory entry
+  \ to a position in the disk image.
+  entry-pos @ + 
+  ;
+
 2variable file-contents  \ contents of the current file (memory zone)
 
 \ The `tap-file` variable is zero when the current file is not
@@ -233,21 +239,17 @@ variable tap-file
 : file-length  ( -- n )
   \ Length of the current file.
   \ XXX TODO factor
-  \ XXX confirmed
   file-contents 2@  tap-file @ if  drop 14 + @z80  else  nip  then
   ;
 : start  ( -- n )
   \ Autostart line (for BASIC programs) or start address (for code files)
-  \ XXX confirmed
   tap-file @ if  16 tape-header+ @z80  else  0  then
   ;
 : start2  ( -- n )
   \ If it's a BASIC program, return the start of the variable area
   \ relative to the start of the program; ff it's a code file, return 32768.
-  \ XXX confirmed
   tap-file @ if  18 tape-header+ @z80 else  32768  then
   ;
-
 
 : file+  ( +n -- a )
   \ Convert a position in the current file
@@ -307,7 +309,7 @@ variable sectors-already-used
   \ Store the filename
   \ (positions 1-10 of the directory entry).
 
-  dos-filename entry-pos @ 1+ filename!
+  dos-filename 1 entry-pos+ filename!
 
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
@@ -318,7 +320,7 @@ variable sectors-already-used
   file-length /file-header + 510 / 1+  dup sectors/file !
   \ dup cr ." sectors used by the new file=" . \ XXX INFORMER
   \    cr ." sectors already used=" sectors-already-used ? \ XXX INFORMER
-  entry-pos @ 11 + mgt!be
+  11 entry-pos+ mgt!be
 
   \ Calculate the starting side, track and sector of the file.
 
@@ -331,8 +333,8 @@ variable sectors-already-used
   \ (positions 13-14 of the directory entry).
 
   starting-track @ starting-side @ 128 and +
-  entry-pos @ 13 + mgtc!  \ track (0-79, 128-207)
-  starting-sector @ entry-pos @ 14 + mgtc!  \ sector (1-10)
+  13 entry-pos+ mgtc!  \ track (0-79, 128-207)
+  starting-sector @ 14 entry-pos+ mgtc!  \ sector (1-10)
 
   \ Create the sector address map
   \ (positions 15-209 of the directory entry).
@@ -371,14 +373,31 @@ variable sectors-already-used
   \ 218-219: Autostart line/address.
 
   \ XXX TODO -- finish
-  tape-header-id      entry-pos @ 211 + mgtc!
-  file-length         entry-pos @ 212 + mgt!
-  start               entry-pos @ 214 + mgt!
-  \ autostart           entry-pos @ 218 + mgt!
 
-  tap-file @ 0= if
-    \ This is what GDOS does for code files, not sure why:
-    $FFFF entry-pos @ 216 + mgt!
+
+  tape-header-id      211 entry-pos+ mgtc!
+  file-length         212 entry-pos+ mgt!
+
+  tap-file @ if
+    tape-file-id case
+      0 of \ BASIC program
+        23755 214 entry-pos+ mgt!  \ start address
+        start2 216 entry-pos+ mgt!  \ relative start of the variable area
+        start 218 entry-pos+ mgt!  \ autostart line
+      endof
+      1 of  \ number array
+        \ XXX TODO
+      endof
+      2 of \ character array
+        \ XXX TODO
+      endof
+      3 of \ code file
+        start 214 entry-pos+ mgt!  \ start address
+        0xFFFF 216 entry-pos+ mgt!
+      endof
+    endcase
+  else
+    0xFFFF 216 entry-pos+ mgt!
   then
 
   ;
@@ -416,7 +435,7 @@ variable start-of-file       \ flag for the first copied chunk
 
       \ Copy the file header from the directory entry.
 
-      entry-pos @ 211 + image+ image-pos @ image+ /file-header move
+      211 entry-pos+ image+ image-pos @ image+ /file-header move
 
       /file-header image-pos +!
       data/sector /file-header - copy-len !
