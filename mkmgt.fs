@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-s" A-01-201504121231" 2constant version
+s" A-02-201504121302" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -43,14 +43,22 @@ s" A-01-201504121231" 2constant version
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ History
 
-\ 2015-04-10: Start. First working version: A-00-201504102349.
+\ 2015-04-10:
 \
-\ 2015-04-11: Support for TAP files (only one ZX Spectrum file per TAP
-\ file). Version A-01-2015041102147.
+\ Start. First working version: A-00-201504102349.
 \
-\ 2015-04-12: First changes to support TAP files with several ZX
-\ Spectrum files. Change: when no input file is specified, an empty
-\ disk images is created (formerly the usage instructions were shown).
+\ 2015-04-11:
+\
+\ New: Support for TAP files (only one ZX Spectrum file per TAP file).
+\ Version A-01-2015041102147.
+\
+\ 2015-04-12:
+\
+\ New: Support for TAP files with several ZX Spectrum files.  Version
+\ A-02-201504121302.
+\
+\ Change: when no input file is specified, an empty disk image is
+\ created (formerly the usage instructions were shown).
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
@@ -225,7 +233,7 @@ variable file-contents-pos \ position in the file contents (used for TAP files)
 \ the actual file inside the TAP file. Thus it is used as a flag and
 \ as a counter.
 
-variable tap-file
+variable tap-file \ XXX TODO combine with `tap-file?`
 
 : filename!  ( ca len +n -- )
   \ Store a DOS filename into the disk image.
@@ -324,22 +332,23 @@ variable sectors-already-used
   loop
   ;
 
-: make-directory-entry  ( -- )
+: make-directory-entry  ( +n -- )
 
   \ Create a directory entry in the disk image.
-  \ Input variables:
-  \   entry-pos
-  \   input-filename$
+  \ +n = disk image position of a free directory entry
+  \ XXX TODO use entry number instead
+
+  entry-pos !
 
   \ Set the file type
   \ (position 0 of the directory entry).
 
-  file-type entry-pos @ mgtc!
+  file-type 0 entry-pos+ ~~ mgtc!
 
   \ Store the filename
   \ (positions 1-10 of the directory entry).
 
-  dos-filename 1 entry-pos+ filename!
+  dos-filename 1 entry-pos+ ~~ filename!
 
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
@@ -351,7 +360,7 @@ variable sectors-already-used
 
   file-length /file-header + 510 / 1+
   dup sectors/file !
-  11 entry-pos+ mgt!be
+  11 entry-pos+ ~~ mgt!be
 
   \ Calculate the starting side, track and sector of the file.
 
@@ -540,19 +549,22 @@ variable start-of-file       \ flag for the first copied piece
   \ Copy the current input file to the disk image.  The current input
   \ file can be a host system file, regarded as a code file, or a ZX
   \ Spectrum file included in a TAP file.
-  make-directory-entry copy-file-contents  ;
+  free-entry? if    make-directory-entry copy-file-contents
+              else  abort" Too many files for MGT format"  then
+  ;
 
+: file-in-tap+  ( +n1 -- +n2 )
+  \ Update a file position
+  \ to point to the next ZX Spectrum file in the TAP file.
+  tap-metadata+  \ point to the first actual data byte
+  file-length +  \ skip the data
+  1+             \ skip the checksum byte at the end of the TAP data block
+  ;
 : empty-tap-file?  ( -- f )
   \ Is the current TAP file empty?
-  \ XXX TODO
-  file-contents-pos @ tap-metadata+ file-length +
-  1+  \ skip the checksum byte at the end of the TAP data block
-  \ ~~ \ XXX INFORMER
-  dup file-contents-pos !   \ Save the result, just in case
-                            \ the TAP file is not empty.
-  \ ~~ \ XXX INFORMER
-  (file-contents) 2@ nip >     \ greater than the size of the input file?
-  \ ~~ key drop  \ XXX INFORMER
+  file-contents-pos @ file-in-tap+  \ new position
+  dup file-contents-pos !           \ update the position
+  (file-contents) 2@ nip =          \ end of the TAP file?
   ;
 : copy-tap-file  ( -- )
   \ Copy a TAP file to the disk image. It can include one or more ZX
@@ -573,19 +585,17 @@ variable start-of-file       \ flag for the first copied piece
   (file-contents) 2@ drop free throw
   ;
 
-: (file>image)  ( ca len +n -- )
-  \ Copy an input file to the disk image.
-  \ ca len = filename
-  \ +n = disk image position of a free directory entry
-  entry-pos !  2dup input-filename$ $!  2dup type cr  2dup get-input-file
-  s" .tap" string-suffix?  dup abs tap-file !
-  if  copy-tap-file  else  copy-file  then  free-input-file
+: tap-file?  ( ca len -- f )
+  \ Is a parameter file a TAP file?
+  \ ca len = parameter filename
+  \ XXX TODO combine `tap-file` and this word.
+  s" .tap" string-suffix?  dup tap-file !
   ;
 : file>image  ( ca len -- )
-  \ Copy an input file to the disk image, if there's a free directory entry.
-  \ ca len = filename
-  free-entry? if    (file>image)
-              else  abort" Too many files for MGT format"  then
+  \ Copy an input file to the disk image.
+  \ ca len = parameter filename
+  2dup input-filename$ $!  2dup type cr  2dup get-input-file
+  tap-file? if  copy-tap-file  else  copy-file  then  free-input-file
   ;
 : files>image  ( -- )
   \ Copy the input files to the disk image.
