@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-s" A-02-201504121302" 2constant version
+s" A-03-201504130035" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -57,8 +57,9 @@ s" A-02-201504121302" 2constant version
 \ New: Support for TAP files with several ZX Spectrum files.  Version
 \ A-02-201504121302.
 \
-\ Change: when no input file is specified, an empty disk image is
-\ created (formerly the usage instructions were shown).
+\ 2015-04-13:
+\
+\ New: Support for arrays in TAP files.  Version A-03-201504130035.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
@@ -106,6 +107,10 @@ require string.fs \ Gforth dynamic strings
   r@ write-file throw
   r> close-file throw
   ;
+
+: default-of  ( -- )
+  postpone dup postpone of
+  ;  immediate compile-only
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Disk image
@@ -206,13 +211,13 @@ image /image erase
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Input files
 
-variable sectors/file  \ number of sectors used by the current file
+variable sectors/file     \ number of sectors used by the current file
 variable starting-side
 variable starting-track
 variable starting-sector
 
 variable input-filename$  \ filename of the current file (dinamyc string)
-variable entry-pos  \ directory entry position in the disk image
+variable entry-pos        \ directory entry position in the disk image
 
 : entry-pos+  ( n1 -- n2 )
   \ Convert a position in a directory entry
@@ -228,12 +233,7 @@ variable file-contents-pos \ position in the file contents (used for TAP files)
   (file-contents) 2@ file-contents-pos @ /string
   ;
 
-\ The `tap-file` variable is zero when the current file is not
-\ extracted from a TAP file; otherwise it holds the ordinal number of
-\ the actual file inside the TAP file. Thus it is used as a flag and
-\ as a counter.
-
-variable tap-file \ XXX TODO combine with `tap-file?`
+false value tap-file?  \ is the current input file a TAP file?
 
 : filename!  ( ca len +n -- )
   \ Store a DOS filename into the disk image.
@@ -244,26 +244,26 @@ variable tap-file \ XXX TODO combine with `tap-file?`
 
 : tape-header+  ( n -- a )
   \ Convert a position in the tape header to its actual address.
-  \ XXX TODO adapt to TAP files containing several files.
   \ XXX TODO rename
   file-contents drop +
   ;
 
-  \ The tape header id is:
+: (tape-header-id)  ( -- n )
+  \ Tape header id of the current input file, that is TAP file.
+  \ The tape header id can be:
   \ 0 for a BASIC program;
   \ 1 for a number array;
   \ 2 for a character array;
   \ 3 for a code file.
   \ A SCREEN$ file is regarded as a code file
   \ with start address 16384 and length 6912 decimal.
-
-: (tape-header-id)  ( -- n )
-  \ Tape header id of the current input file, that is TAP file.
   3 tape-header+ c@
   ;
 : tape-header-id  ( -- n )
   \ Tape header id of the current input file.
-  tap-file @ if  (tape-header-id)  else  3  then
+  \ If the current input file is not in a TAP file,
+  \ it's regarded as a code file (tape header id 3).
+  tap-file? if  (tape-header-id)  else  3  then
   ;
 : file-type  ( -- n )
   \ DOS file type of the current input file.
@@ -272,23 +272,26 @@ variable tap-file \ XXX TODO combine with `tap-file?`
   \   3: ZX string array   4: ZX code     5: ZX 48K snapshot
   \   6: ZX Microdrive     7: ZX screen   8: Special
   \   9: ZX 128K snapshot 10: Opentype   11: ZX execute
-  tap-file @ if  (tape-header-id) 1+  else  4  then
+  \ If the current input file is not in a TAP file,
+  \ it's regarded as a code file (DOS file type 4).
+  \ XXX TODO return file type 7 if code is 16384,6912
+  tap-file? if  (tape-header-id) 1+  else  4  then
   ;
 : dos-filename  ( -- ca len )
   \ DOS filename of the current input file.
   \ ca len = filename
-  tap-file @ if    4 tape-header+  /filename
+  tap-file? if    4 tape-header+  /filename
              else  input-filename$ $@ basename /filename min  then
   ;
 : file-length  ( -- n )
   \ Length of the current file.
   \ XXX TODO factor
-  file-contents tap-file @ if  drop 14 + @z80  else  nip  then
+  file-contents tap-file? if  drop 14 + @z80  else  nip  then
   ;
 : start  ( -- n )
   \ Autostart line (for BASIC programs)
   \ or start address (for code files)
-  tap-file @ if  16 tape-header+ @z80  else  0  then
+  tap-file? if  16 tape-header+ @z80  else  0  then
   ;
 : start2  ( -- n )
   \ If the current file is a BASIC program,
@@ -297,7 +300,14 @@ variable tap-file \ XXX TODO combine with `tap-file?`
   \ if it's a code file, return 32768.
   \ If the current file is not a TAP file,
   \ it's regarded as a code file.
-  tap-file @ if  18 tape-header+ @z80 else  32768  then
+  tap-file? if  18 tape-header+ @z80 else  32768  then
+  ;
+: array-name-letter  ( -- b )
+  \ Array name letter of the current file,
+  \ that is an numeric or string array stored in a TAP file.
+  \ Note: The array name letter is uppercase; bit 6 set means
+  \ a numeric array, and bit 7 set means a string array.
+  17 tape-header+ @z80
   ;
 
 : tap-metadata+  ( +n1 -- +n2 )
@@ -311,7 +321,7 @@ variable tap-file \ XXX TODO combine with `tap-file?`
   \ Convert a position in the current file
   \ to its actual memory address.
   \ XXX TODO factor with tape-header+
-  file-contents drop +  tap-file @ if  tap-metadata+  then
+  file-contents drop +  tap-file? if  tap-metadata+  then
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -336,31 +346,31 @@ variable sectors-already-used
 
   \ Create a directory entry in the disk image.
   \ +n = disk image position of a free directory entry
-  \ XXX TODO use entry number instead
+  \ XXX TODO use entry number instead?
 
   entry-pos !
 
   \ Set the file type
   \ (position 0 of the directory entry).
 
-  file-type 0 entry-pos+ ~~ mgtc!
+  file-type 0 entry-pos+ mgtc!
 
   \ Store the filename
   \ (positions 1-10 of the directory entry).
 
-  dos-filename 1 entry-pos+ ~~ filename!
+  dos-filename 1 entry-pos+ filename!
 
   \ Calculate and store the number of sectors used by the file
   \ (positions 11-12 of the directory entry).
 
   \ The length of the file header (bytes 211-219 of the directory
-  \ entry is added because it's saved also at the start of the file
-  \ for some file types).
-  \ XXX TODO -- check if this must be done also with arrays.
+  \ entry) is added because it must be saved also at the start of the
+  \ file, for all supported file types -- BASIC programs, code files
+  \ and arrays.
 
   file-length /file-header + 510 / 1+
   dup sectors/file !
-  11 entry-pos+ ~~ mgt!be
+  11 entry-pos+ mgt!be
 
   \ Calculate the starting side, track and sector of the file.
 
@@ -416,11 +426,19 @@ variable sectors-already-used
   file-length         212 entry-pos+ mgt!
 
   \ The rest of the GDOS header depends on the origin of the input
-  \ file (a host system file or a TAP file).
+  \ file (a host system file or a ZX Spectrum file inside a TAP file).
 
-  tap-file @ if
+  tap-file? if
 
     \ The input file is a TAP file.
+
+    \ There are four possible tape header ids:
+    \ 0 for a BASIC program;
+    \ 1 for a number array;
+    \ 2 for a character array;
+    \ 3 for a code file.
+    \ A SCREEN$ file is regarded as a code file
+    \ with start address 16384 and length 6912 decimal.
 
     tape-header-id case
 
@@ -430,17 +448,26 @@ variable sectors-already-used
         start 218 entry-pos+ mgt!   \ autostart line
       endof
 
-      1 of  \ number array
-        \ XXX TODO
-      endof
-
-      2 of \ character array
-        \ XXX TODO
-      endof
-
       3 of \ code file
         start 214 entry-pos+ mgt!  \ start address
         0xFFFF 216 entry-pos+ mgt!
+      endof
+
+      default-of
+
+        \ Numeric arrays (tape header id 1) and string arrays (tape
+        \ header id 2) share the same treatment.
+
+        \ For some unknown reason GDOS saves their start address into
+        \ position 214 of the GDOS header, but it can be ommited
+        \ because the loading address will depend on the size of the
+        \ BASIC program and the existing variables. In fact that
+        \ information is ommited in tape headers.
+
+        0xFF 216 entry-pos+ mgtc!
+        array-name-letter 217 entry-pos+ mgtc!
+        0xFFFF 218 entry-pos+ mgtc!
+
       endof
 
     endcase
@@ -567,8 +594,8 @@ variable start-of-file       \ flag for the first copied piece
   (file-contents) 2@ nip =          \ end of the TAP file?
   ;
 : copy-tap-file  ( -- )
-  \ Copy a TAP file to the disk image. It can include one or more ZX
-  \ Spectrum files.
+  \ Copy a TAP file to the disk image.
+  \ It can include one or more ZX Spectrum files.
   begin  dos-filename 2 spaces type cr  copy-file  empty-tap-file?  until
   ;
 
@@ -585,17 +612,14 @@ variable start-of-file       \ flag for the first copied piece
   (file-contents) 2@ drop free throw
   ;
 
-: tap-file?  ( ca len -- f )
-  \ Is a parameter file a TAP file?
-  \ ca len = parameter filename
-  \ XXX TODO combine `tap-file` and this word.
-  s" .tap" string-suffix?  dup tap-file !
-  ;
 : file>image  ( ca len -- )
   \ Copy an input file to the disk image.
   \ ca len = parameter filename
-  2dup input-filename$ $!  2dup type cr  2dup get-input-file
-  tap-file? if  copy-tap-file  else  copy-file  then  free-input-file
+  2dup type cr
+  2dup input-filename$ $!
+  2dup get-input-file
+  s" .tap" string-suffix?  dup to tap-file?
+  if  copy-tap-file  else  copy-file  then  free-input-file
   ;
 : files>image  ( -- )
   \ Copy the input files to the disk image.
