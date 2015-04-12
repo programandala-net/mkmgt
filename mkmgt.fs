@@ -1,7 +1,7 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-s" A-01-201504120034" 2constant version
+s" A-01-201504121231" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -47,6 +47,10 @@ s" A-01-201504120034" 2constant version
 \
 \ 2015-04-11: Support for TAP files (only one ZX Spectrum file per TAP
 \ file). Version A-01-2015041102147.
+\
+\ 2015-04-12: First changes to support TAP files with several ZX
+\ Spectrum files. Change: when no input file is specified, an empty
+\ disk images is created (formerly the usage instructions were shown).
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
@@ -54,10 +58,21 @@ s" A-01-201504120034" 2constant version
 \ Support for TAP files with more than one ZX Spectrum file.
 
 \ Add files to an existent disk image.
+
+\ Check duplicated filenames.
+
+\ Options:
+
+\ --tap-filename : use the TAP filename, instead the filename
+\ inside the TAP file.
 \
-\ Options to force names of files contained in a TAP file:
-\ --host-names = force the TAP file name
-\ --host-base-names = force the TAP file name without extension
+\ --filename=NAME : change the filename of the next file.
+\
+\ --quiet
+\
+\ --version
+\
+\ --help
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Requirements
@@ -67,12 +82,12 @@ require string.fs \ Gforth dynamic strings
 \ From the Galope library
 \ (http://programandala.net/en.program.galope.html):
 
-: ends? ( ca1 len1 ca2 len2 -- ca1 len1 wf )
+: string-suffix? ( ca1 len1 ca2 len2 -- wf )
   \ Check end of string:
   \ Is ca2 len2 the end of ca1 len1?
   \ ca1 len1 = long string
-  \ ca2 len2 = end to check
-  2over  dup 3 pick - /string  compare 0=
+  \ ca2 len2 = suffix to check
+  2swap dup 3 pick - /string  compare 0=
   ;
 
 : unslurp-file  ( ca1 len1 ca2 len2 -- )
@@ -124,7 +139,7 @@ image /image erase
   \ Convert a directory entry
   \ to its position in the disk image.
   \ entry = 0..79 (instead of the usual range 1..80)
-  dup >r 20 /       \ track
+  dup >r 20 /      \ track
   0                \ side
   r@ 20 mod 2/ 1+  \ sector
   geometry>pos
@@ -169,7 +184,7 @@ image /image erase
 
 : +extension  ( ca1 len1 -- ca2 len2 )
   \ Add the .mgt file extension to the given filename, if missing.
-  s" .mgt" ends? 0= if  s" .mgt" s+  then
+  2dup s" .mgt" string-suffix? 0= if  s" .mgt" s+  then
   ;
 : get-image-filename  ( -- )
   \ Get the first parameter, the disk image filename.
@@ -231,7 +246,8 @@ variable tap-file
   \ 1 for a number array;
   \ 2 for a character array;
   \ 3 for a code file.
-  \ A SCREEN$ file is regarded as a code file with start address 16384 and length 6912 decimal.
+  \ A SCREEN$ file is regarded as a code file
+  \ with start address 16384 and length 6912 decimal.
 
 : (tape-header-id)  ( -- n )
   \ Tape header id of the current input file, that is TAP file.
@@ -262,21 +278,32 @@ variable tap-file
   file-contents tap-file @ if  drop 14 + @z80  else  nip  then
   ;
 : start  ( -- n )
-  \ Autostart line (for BASIC programs) or start address (for code files)
+  \ Autostart line (for BASIC programs)
+  \ or start address (for code files)
   tap-file @ if  16 tape-header+ @z80  else  0  then
   ;
 : start2  ( -- n )
-  \ If the current file is a BASIC program, return the start of the variable area
-  \ relative to the start of the program; if it's a code file, return 32768.
+  \ If the current file is a BASIC program,
+  \ return the start of the variable area
+  \ relative to the start of the program;
+  \ if it's a code file, return 32768.
+  \ If the current file is not a TAP file,
+  \ it's regarded as a code file.
   tap-file @ if  18 tape-header+ @z80 else  32768  then
+  ;
+
+: tap-metadata+  ( +n1 -- +n2 )
+  \ Update a position in the current file,
+  \ skipping all TAP header info until the first
+  \ actual data byte.
+  24 +
   ;
 
 : file+  ( +n -- a )
   \ Convert a position in the current file
   \ to its actual memory address.
   \ XXX TODO factor with tape-header+
-  file-contents drop +
-  tap-file @ if  24 +  then  \ skip the TAP file header
+  file-contents drop +  tap-file @ if  tap-metadata+  then
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -419,7 +446,11 @@ variable sectors-already-used
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-\ Copying an input file
+\ Copying a file
+
+\ The current file to be copied to the disk image can be a host system
+\ file, regarded as ZX Spectrum code file, or an actual ZX Spectrum
+\ file included in a TAP file.
 
 variable side                \ current side of the disk
 variable track               \ current track of the disk
@@ -432,9 +463,8 @@ variable start-of-file       \ flag for the first copied piece
 
 : copy-file-contents-piece  ( -- )
 
-  \ Copy a piece (a sector) of the contents of the current input file
-  \ to the disk image.  The current input file can be a host system
-  \ file or a ZX Spectrum file included in a TAP file.
+  \ Copy a piece (a sector) of the contents of the current file to the
+  \ disk image.
 
   track @ side @ sector @ geometry>pos
   dup previous-image-pos !  image-pos !
@@ -445,7 +475,7 @@ variable start-of-file       \ flag for the first copied piece
 
     \ Copy the GDOS file header from the directory entry.
 
-    \ XXX TODO -- confirm if this has to be done for all file types
+    \ XXX TODO -- Confirm this has to be done for all file types.
 
     211 entry-pos+ image+ image-pos @ image+ /file-header move
 
@@ -492,9 +522,7 @@ variable start-of-file       \ flag for the first copied piece
 
 : copy-file-contents  ( -- )
 
-  \ Copy the contents of the current input file to the disk image.
-  \ The current input file can be a host system file or a ZX Spectrum
-  \ file included in a TAP file.
+  \ Copy the contents of the current file to the disk image.
 
   starting-side @ side !
   starting-track @ track !
@@ -510,31 +538,37 @@ variable start-of-file       \ flag for the first copied piece
 
 : copy-file  ( -- )
   \ Copy the current input file to the disk image.  The current input
-  \ file can be a host system file or a ZX Spectrum file included in a
-  \ TAP file.
-  make-directory-entry  copy-file-contents
-  ;
+  \ file can be a host system file, regarded as a code file, or a ZX
+  \ Spectrum file included in a TAP file.
+  make-directory-entry copy-file-contents  ;
 
 : empty-tap-file?  ( -- f )
   \ Is the current TAP file empty?
   \ XXX TODO
-  true
+  file-contents-pos @ tap-metadata+ file-length +
+  1+  \ skip the checksum byte at the end of the TAP data block
+  \ ~~ \ XXX INFORMER
+  dup file-contents-pos !   \ Save the result, just in case
+                            \ the TAP file is not empty.
+  \ ~~ \ XXX INFORMER
+  (file-contents) 2@ nip >     \ greater than the size of the input file?
+  \ ~~ key drop  \ XXX INFORMER
   ;
-: copy-tap-file
+: copy-tap-file  ( -- )
   \ Copy a TAP file to the disk image. It can include one or more ZX
   \ Spectrum files.
-  begin  copy-file  empty-tap-file?  until
+  begin  dos-filename 2 spaces type cr  copy-file  empty-tap-file?  until
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Main
 
-: get-file  ( ca len -- )
+: get-input-file  ( ca len -- )
   \ Get the contents of an input file.
   \ ca len = filename
   slurp-file (file-contents) 2!  0 file-contents-pos !
   ;
-: free-file  ( -- )
+: free-input-file  ( -- )
   \ Free the space used by the input file.
   (file-contents) 2@ drop free throw
   ;
@@ -543,9 +577,9 @@ variable start-of-file       \ flag for the first copied piece
   \ Copy an input file to the disk image.
   \ ca len = filename
   \ +n = disk image position of a free directory entry
-  entry-pos !  2dup input-filename$ $!  2dup type cr  2dup get-file
-  s" .tap" ends?  dup abs tap-file !
-  if  copy-tap-file  else  copy-file  then  free-file
+  entry-pos !  2dup input-filename$ $!  2dup type cr  2dup get-input-file
+  s" .tap" string-suffix?  dup abs tap-file !
+  if  copy-tap-file  else  copy-file  then  free-input-file
   ;
 : file>image  ( ca len -- )
   \ Copy an input file to the disk image, if there's a free directory entry.
@@ -573,6 +607,7 @@ variable start-of-file       \ flag for the first copied piece
   cr ." The next parameters are files to be added to the disk image"
   cr ." (shell patterns can be used)." cr
   cr ." Examples:" cr
+  command ."  empty_disk.mgt"
   command ."  my_file.mgt myfile.bin"
   command ."  my_files myfile1.bin myfile2.txt"
   command ."  data.mgt *.dat data??.*"
@@ -583,7 +618,7 @@ variable start-of-file       \ flag for the first copied piece
 
 : check  ( -- )
   \ Make sure the number of parameters is 3 or more.
-  argc @ 3 < if  usage bye  then
+  argc @ 2 < if  usage bye  then
   ;
 : run  ( -- )
   check get-image-filename files>image save-image
