@@ -1,7 +1,8 @@
 #! /usr/bin/env gforth
 
 \ mkmgt
-s" A-03-201504130035" 2constant version
+
+s" A-03-20150424" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -60,33 +61,36 @@ s" A-03-201504130035" 2constant version
 \ 2015-04-13:
 \
 \ New: Support for arrays in TAP files.  Version A-03-201504130035.
+\
+\ 2015-04-24:
+\
+\ Minor layout changes. Some comments improved. New to-do notes in the
+\ code.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
-
-\ Support for TAP files with more than one ZX Spectrum file.
 
 \ Add files to an existent disk image.
 
 \ Check duplicated filenames.
 
+\ Fix: detect also ".TAP".
+
 \ Options:
 
-\ --tap-filename : use the TAP filename, instead the filename
-\ inside the TAP file.
-\
 \ --filename=NAME : change the filename of the next file.
-\
-\ --quiet
-\
-\ --version
-\
-\ --help
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Requirements
 
-require string.fs \ Gforth dynamic strings
+\ From Gforth:
+
+require string.fs \ dynamic strings
+
+\ From the Forth Foundation Library
+\ (http://code.google.com/p/ffl/):
+
+require ffl/arg.fs  \ argument parser
 
 \ From the Galope library
 \ (http://programandala.net/en.program.galope.html):
@@ -112,13 +116,41 @@ require string.fs \ Gforth dynamic strings
   postpone dup postpone of
   ;  immediate compile-only
 
+: $variable  ( "name" -- )
+  \ Create and initialize a dynamic string variable.
+  variable  0 latestxt execute $!len
+  ;
+
+: -suffix ( a1 u1 a2 u2 -- a1 u1 | a3 u3 )
+  \ Remove a suffix from a string.
+  \ a1 u1 = string
+  \ a2 u2 = suffix to be removed
+  \ a3 u3 = string without the suffix
+  dup >r 2over 2swap string-suffix?
+  if  r> -  else  rdrop  then
+  ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Command line options flags
+
+true value verbose?
+  \ List the processed input files?
+
+false value ignore-tape-filename?
+  \ Ignore the ZX Spectrum filename contained in the tape header of a
+  \ TAP file and use the filename of the container TAP instead?  This
+  \ is useful when several TAP files, containing only one ZX Spectrum
+  \ file, have the same filename in their tape headers.  This is the
+  \ case with ZX Spectrum Abersoft Forth, that always uses "DISC" as
+  \ filename when saving its RAM disk to tape.
+
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Disk image
 
 \ ----------------------------------------------
 \ Data
 
-variable image-filename$
+$variable image-filename$
 
   2 constant sides/disk     \ sides (0..1)
  80 constant tracks/side    \ tracks (0..79)
@@ -168,19 +200,19 @@ image /image erase
 \ ----------------------------------------------
 \ Fetch and store
 
-: @z80 ( a -- 16b )
+: @z80  ( a -- 16b )
   \ Fetch a 16-bit value with Z80 format: LSB first.
   dup c@ swap 1+ c@ 256 * +
   ;
-: !z80 ( 16b a -- )
+: !z80  ( 16b a -- )
   \ Store a 16-bit value with Z80 format: LSB first.
   swap 2dup  256 mod swap c!  256 / swap 1+ c!
   ;
-: @big-endian ( a -- 16b )
+: @big-endian  ( a -- 16b )
   \ Fetch a 16-bit value with big-endian format: MSB first.
   dup c@ 256 * swap 1+ c@ +
   ;
-: !big-endian ( 16b a -- )
+: !big-endian  ( 16b a -- )
   \ Store a 16-bit value with big-endian format: MSB first.
   swap 2dup  256 / swap c!  256 mod swap 1+ c!
   ;
@@ -199,10 +231,10 @@ image /image erase
   \ Add the .mgt file extension to the given filename, if missing.
   2dup s" .mgt" string-suffix? 0= if  s" .mgt" s+  then
   ;
-: get-image-filename  ( -- )
-  \ Get the first parameter, the disk image filename.
-  1 arg  +extension image-filename$ $!
-  ;
+\ : get-image-filename  ( -- )
+\   \ Get the first parameter, the disk image filename.
+\   1 arg  +extension image-filename$ $!
+\   ;
 : save-image  ( -- )
   \ Save the disk image to a file.
   image /image image-filename$ $@ unslurp-file
@@ -277,11 +309,33 @@ false value tap-file?  \ is the current input file a TAP file?
   \ XXX TODO return file type 7 if code is 16384,6912
   tap-file? if  (tape-header-id) 1+  else  4  then
   ;
+
+: dos-filename<tape-header  ( -- ca len )
+  \ Get the DOS filename from the tape header of the input TAP file.
+  4 tape-header+  /filename
+  ;
+: dos-filename<input-tap-file  ( -- ca len )
+  \ Get the DOS filename from the input TAP file.
+  \ XXX TODO if the TAP file has several ZX Spectrum files,
+  \ add an index number.
+  input-filename$ $@ basename s" .tap" -suffix /filename min
+  ;
+: dos-filename<input-file  ( -- ca len )
+  \ Get the DOS filename from the input file.
+  input-filename$ $@ basename /filename min
+  ;
+
 : dos-filename  ( -- ca len )
   \ DOS filename of the current input file.
+  \ Depending on the input file and the options,
+  \ the DOS filename can be the filename of the input file,
+  \ the filename stored in the tape header of a TAP file
+  \ or the filename of the TAP file.
   \ ca len = filename
-  tap-file? if    4 tape-header+  /filename
-             else  input-filename$ $@ basename /filename min  then
+  tap-file? if
+    ignore-tape-filename?  if    dos-filename<input-tap-file
+                           else  dos-filename<tape-header  then
+  else  dos-filename<input-file  then
   ;
 : file-length  ( -- n )
   \ Length of the current file.
@@ -511,8 +565,6 @@ variable start-of-file       \ flag for the first copied piece
 
     \ Copy the GDOS file header from the directory entry.
 
-    \ XXX TODO -- Confirm this has to be done for all file types.
-
     211 entry-pos+ image+ image-pos @ image+ /file-header move
 
     /file-header image-pos +!
@@ -539,7 +591,7 @@ variable start-of-file       \ flag for the first copied piece
     1 sector !  1 track +!
     track @ tracks/side = if
       0 track !  1 side +!
-      side @ sides/disk = abort" Disk full"
+      side @ sides/disk = abort" Disk full."
     then
   then
 
@@ -577,7 +629,7 @@ variable start-of-file       \ flag for the first copied piece
   \ file can be a host system file, regarded as a code file, or a ZX
   \ Spectrum file included in a TAP file.
   free-entry? if    make-directory-entry copy-file-contents
-              else  abort" Too many files for MGT format"  then
+              else  abort" Too many files for MGT format."  then
   ;
 
 : file-in-tap+  ( +n1 -- +n2 )
@@ -596,7 +648,8 @@ variable start-of-file       \ flag for the first copied piece
 : copy-tap-file  ( -- )
   \ Copy a TAP file to the disk image.
   \ It can include one or more ZX Spectrum files.
-  begin  dos-filename 2 spaces type cr  copy-file  empty-tap-file?  until
+  begin  verbose? if  dos-filename 2 spaces type cr  then  copy-file
+  empty-tap-file? until
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -615,47 +668,132 @@ variable start-of-file       \ flag for the first copied piece
 : file>image  ( ca len -- )
   \ Copy an input file to the disk image.
   \ ca len = parameter filename
-  2dup type cr
+  verbose? if  2dup type cr  then
   2dup input-filename$ $!
   2dup get-input-file
   s" .tap" string-suffix?  dup to tap-file?
   if  copy-tap-file  else  copy-file  then  free-input-file
   ;
-: files>image  ( -- )
-  \ Copy the input files to the disk image.
-  argc @ 2 ?do  i arg file>image  loop
+
+\ XXX OLD
+\ : files>image  ( -- )
+\  \ Copy the input files to the disk image.
+\  argc @ 2 ?do  i arg file>image  loop
+\  ;
+: parameter-file  ( ca len -- )
+  \ Treat a file received as parameter.
+  \ If it's the first one, it's regarded as the output file;
+  \ otherwise it's an input file.
+  \ ca len = filename
+  image-filename$ $@len  \ is the output filename already set?
+  if  file>image  else  +extension image-filename$ $!  then
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Usage
 
-: command  ( -- )
-  cr s"   mkmgt" type
-  ;
-: usage  ( -- )
-  \ Show the usage instructions.
-  cr ." Usage:" cr
-  cr ." The first parameter is the MGT disk image filename."
-  cr ." Its extension '.mgt' will be automatically added if missing."
-  cr ." WARNING: If the file already exists, it will be overwritten." cr
-  cr ." The next parameters are files to be added to the disk image"
-  cr ." (shell patterns can be used)." cr
-  cr ." Examples:" cr
-  command ."  empty_disk.mgt"
-  command ."  my_file.mgt myfile.bin"
-  command ."  my_files myfile1.bin myfile2.txt"
-  command ."  data.mgt *.dat data??.*"
+\ XXX OLD
+\ : command  ( -- )
+\   cr s"   mkmgt" type
+\   ;
+\ : usage  ( -- )
+\   \ Show the usage instructions.
+\   cr ." Usage:" cr
+\   cr ." The first parameter is the MGT disk image filename."
+\   cr ." Its extension '.mgt' will be automatically added if missing."
+\   cr ." WARNING: If the file already exists, it will be overwritten." cr
+\   cr ." The next parameters are files to be added to the disk image"
+\   cr ." (shell patterns can be used)." cr
+\   cr ." Examples:" cr
+\   command ."  empty_disk.mgt"
+\   command ."  my_file.mgt myfile.bin"
+\   command ."  my_files myfile1.bin myfile2.txt"
+\   command ."  data.mgt *.dat data??.*"
+\   ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Argument parser
+
+s" mkmgt"                                 \ program name
+s" [OPTIONS] [OUTPUTFILE] [INPUTFILES]"   \ program usage
+version                                   \ program version
+s" Report bugs to programandala.net"      \ program extra info
+arg-new value mkmgt-arguments
+
+\ Add the default help and version options.
+
+mkmgt-arguments arg-add-help-option
+mkmgt-arguments arg-add-version-option
+
+\ Variable for the verbose switch
+
+variable verbose  verbose off
+
+\ Add the -v/--verbose option switch.
+
+\ char v                              \ Short option name
+\ s" verbose"                         \ Long option name
+\ s" activate verbose mode"           \ Description
+\ true                                \ Switch -> true
+\ 4                                   \ Option id
+\ mkmgt-arguments arg-add-option
+
+\ Add the -q/--quiet option switch.
+
+char q                              \ Short option name
+s" quiet"                           \ Long option name
+s" activate quiet mode: input files will not be listed" \ Description
+true                                \ Switch -> true
+4                                   \ Option id
+mkmgt-arguments arg-add-option
+
+\ Add the -t/--tap-filename option switch.
+
+char t                              \ Short option name
+s" tap-filename"                    \ Long option name
+s" use the TAP filename as DOS filename instead of the filename contained in the tape header"  \ Description
+true                                \ Switch -> true
+5                                   \ Option id
+mkmgt-arguments arg-add-option
+
+\ \ Add the -f/--file=FILE option.
+
+\ char o                          \ Short option name
+\ s" output=FILE"                 \ Long option name
+\ s" set output file (the mgt extension will be added if missing); default: <output.mgt>"  \ Description
+\ false                           \ Parameter -> false
+\ 5                               \ Option id
+\ mkmgt-arguments arg-add-option
+
+: parse-options  ( -- )
+  begin
+    mkmgt-arguments arg-parse  ( ca len n | n )  \ parse the next argument
+    dup arg.done <> over arg.error <> and  \ stop parsing when ready or after an error
+  while
+    case
+      arg.help-option    of  mkmgt-arguments arg-print-help     endof  \ print default help info
+      arg.version-option of  mkmgt-arguments arg-print-version  endof  \ print default version info
+      arg.non-option     of  parameter-file                     endof  \ filename
+      4                  of  false to verbose?                  endof
+      5                  of  true to ignore-tape-filename?      endof
+    endcase
+  repeat
+  arg.done <> if  mkmgt-arguments arg-print-help  then
+  \ mkmgt-arguments arg-free \ free the argument parser from the heap
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Boot
 
-: check  ( -- )
-  \ Make sure the number of parameters is 3 or more.
-  argc @ 2 < if  usage bye  then
-  ;
+\ XXX OLD
+\ : check  ( -- )
+\   \ Make sure the number of parameters is 3 or more.
+\   argc @ 2 < if  usage bye  then
+\   ;
+
 : run  ( -- )
-  check get-image-filename files>image save-image
+  \ get-image-filename files>image
+  parse-options save-image
   ;
 
 run bye
