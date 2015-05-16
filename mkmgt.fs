@@ -2,7 +2,7 @@
 
 \ mkmgt
 
-s" A-03-20150424" 2constant version
+s" A-04-20150516" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -66,6 +66,12 @@ s" A-03-20150424" 2constant version
 \
 \ Minor layout changes. Some comments improved. New to-do notes in the
 \ code.
+\
+\ 2015-05-16:
+\
+\ Fix: Silly mistake: The `abort"` in `copy-file` was wrongly placed
+\ in an `else`; the error (more than 80 input files) was not detected
+\ and caused an stack overflow. Version A-04-20150516.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
@@ -141,8 +147,8 @@ false value ignore-tape-filename?
   \ TAP file and use the filename of the container TAP instead?  This
   \ is useful when several TAP files, containing only one ZX Spectrum
   \ file, have the same filename in their tape headers.  This is the
-  \ case with ZX Spectrum Abersoft Forth, that always uses "DISC" as
-  \ filename when saving its RAM disk to tape.
+  \ case with Abersoft Forth, that always uses the filename "DISC"
+  \ when it saves its RAM disk to tape.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Disk image
@@ -276,7 +282,6 @@ false value tap-file?  \ is the current input file a TAP file?
 
 : tape-header+  ( n -- a )
   \ Convert a position in the tape header to its actual address.
-  \ XXX TODO rename
   file-contents drop +
   ;
 
@@ -390,7 +395,7 @@ variable sectors-already-used
   false  \ default output
   sectors-already-used off
   files/disk 0 ?do
-    i entry>pos dup mgtc@
+    i entry>pos dup mgtc@  ( +n f )  \ occupied?
     if    11 + mgt@be sectors-already-used +!
     else  swap 0= unloop exit  then
   loop
@@ -628,8 +633,8 @@ variable start-of-file       \ flag for the first copied piece
   \ Copy the current input file to the disk image.  The current input
   \ file can be a host system file, regarded as a code file, or a ZX
   \ Spectrum file included in a TAP file.
-  free-entry? if    make-directory-entry copy-file-contents
-              else  abort" Too many files for MGT format."  then
+  free-entry? 0= abort" Too many files for MGT format."
+  make-directory-entry copy-file-contents
   ;
 
 : file-in-tap+  ( +n1 -- +n2 )
@@ -669,17 +674,11 @@ variable start-of-file       \ flag for the first copied piece
   \ Copy an input file to the disk image.
   \ ca len = parameter filename
   verbose? if  2dup type cr  then
-  2dup input-filename$ $!
-  2dup get-input-file
+  2dup input-filename$ $!  2dup get-input-file
   s" .tap" string-suffix?  dup to tap-file?
   if  copy-tap-file  else  copy-file  then  free-input-file
   ;
 
-\ XXX OLD
-\ : files>image  ( -- )
-\  \ Copy the input files to the disk image.
-\  argc @ 2 ?do  i arg file>image  loop
-\  ;
 : parameter-file  ( ca len -- )
   \ Treat a file received as parameter.
   \ If it's the first one, it's regarded as the output file;
@@ -690,32 +689,10 @@ variable start-of-file       \ flag for the first copied piece
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-\ Usage
-
-\ XXX OLD
-\ : command  ( -- )
-\   cr s"   mkmgt" type
-\   ;
-\ : usage  ( -- )
-\   \ Show the usage instructions.
-\   cr ." Usage:" cr
-\   cr ." The first parameter is the MGT disk image filename."
-\   cr ." Its extension '.mgt' will be automatically added if missing."
-\   cr ." WARNING: If the file already exists, it will be overwritten." cr
-\   cr ." The next parameters are files to be added to the disk image"
-\   cr ." (shell patterns can be used)." cr
-\   cr ." Examples:" cr
-\   command ."  empty_disk.mgt"
-\   command ."  my_file.mgt myfile.bin"
-\   command ."  my_files myfile1.bin myfile2.txt"
-\   command ."  data.mgt *.dat data??.*"
-\   ;
-
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Argument parser
 
 s" mkmgt"                                 \ program name
-s" [OPTIONS] [OUTPUTFILE] [INPUTFILES]"   \ program usage
+s" [option]... [outputfile] [option]... [inputfile]..."   \ program usage
 version                                   \ program version
 s" Report bugs to programandala.net"      \ program extra info
 arg-new value mkmgt-arguments
@@ -742,18 +719,18 @@ variable verbose  verbose off
 
 char q                              \ Short option name
 s" quiet"                           \ Long option name
-s" activate quiet mode: input files will not be listed" \ Description
+s" activate quiet mode: input files will not be listed"  \ Desc.
 true                                \ Switch -> true
-4                                   \ Option id
+4 dup constant arg.quiet-option     \ Option id
 mkmgt-arguments arg-add-option
 
 \ Add the -t/--tap-filename option switch.
 
-char t                              \ Short option name
-s" tap-filename"                    \ Long option name
-s" use the TAP filename as DOS filename instead of the filename contained in the tape header"  \ Description
-true                                \ Switch -> true
-5                                   \ Option id
+char t                                  \ Short option name
+s" tap-filename"                        \ Long option name
+s" use TAP filename for DOS instead of that in the tape header" \ Desc.
+true                                    \ Switch -> true
+5 dup constant arg.tap-filename-option  \ Option id
 mkmgt-arguments arg-add-option
 
 \ \ Add the -f/--file=FILE option.
@@ -771,11 +748,11 @@ mkmgt-arguments arg-add-option
     dup arg.done <> over arg.error <> and  \ stop parsing when ready or after an error
   while
     case
-      arg.help-option    of  mkmgt-arguments arg-print-help     endof  \ print default help info
-      arg.version-option of  mkmgt-arguments arg-print-version  endof  \ print default version info
-      arg.non-option     of  parameter-file                     endof  \ filename
-      4                  of  false to verbose?                  endof
-      5                  of  true to ignore-tape-filename?      endof
+      arg.help-option          of  mkmgt-arguments arg-print-help     endof
+      arg.version-option       of  mkmgt-arguments arg-print-version  endof
+      arg.non-option           of  parameter-file                     endof
+      arg.quiet-option         of  false to verbose?                  endof
+      arg.tap-filename-option  of  true to ignore-tape-filename?      endof
     endcase
   repeat
   arg.done <> if  mkmgt-arguments arg-print-help  then
@@ -784,12 +761,6 @@ mkmgt-arguments arg-add-option
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Boot
-
-\ XXX OLD
-\ : check  ( -- )
-\   \ Make sure the number of parameters is 3 or more.
-\   argc @ 2 < if  usage bye  then
-\   ;
 
 : run  ( -- )
   \ get-image-filename files>image
