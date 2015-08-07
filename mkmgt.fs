@@ -2,7 +2,7 @@
 
 \ mkmgt
 
-s" A-04-20150516" 2constant version
+s" B-00-20150807" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -38,8 +38,9 @@ s" A-04-20150516" 2constant version
 \   http://scratchpad.wikia.com/wiki/MGT_filesystem
 
 \ Information on the TAP file format was retrieved from the
-\ documentation of the "Z80" ZX Spectrum emulator (1988-1999 by Gerton
-\ Lunter).  XXX TODO URL
+\ documentation of the "Z80" ZX Spectrum emulator (1988-2002 by Gerton
+\ Lunter).
+\   http://www.worldofspectrum.org/faq/emulators/windows.htm
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ History
@@ -71,20 +72,24 @@ s" A-04-20150516" 2constant version
 \
 \ Fix: Silly mistake: The `abort"` in `copy-file` was wrongly placed
 \ in an `else`; the error (more than 80 input files) was not detected
-\ and caused an stack overflow. Version A-04-20150516.
+\ and caused an stack overflow.  Version A-04-20150516.
+\
+\ 2015-08-07:
+\
+\ Revision before publishing. Version B-00-20150807.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
 
 \ Add files to an existent disk image.
 
-\ Check duplicated filenames.
+\ Check duplicated filenames and add an index number when needed.
 
-\ Fix: detect also ".TAP".
+\ Fix: detect also uppercase ".TAP".
 
-\ Options:
+\ Options --filename=NAME to change the filename of the next file.
 
-\ --filename=NAME : change the filename of the next file.
+\ (Other to-do tasks are marked in the source.)
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Requirements
@@ -94,7 +99,7 @@ s" A-04-20150516" 2constant version
 require string.fs \ dynamic strings
 
 \ From the Forth Foundation Library
-\ (http://code.google.com/p/ffl/):
+\ (http://irdvo.github.io/ffl/):
 
 require ffl/arg.fs  \ argument parser
 
@@ -127,11 +132,11 @@ require ffl/arg.fs  \ argument parser
   variable  0 latestxt execute $!len
   ;
 
-: -suffix ( a1 u1 a2 u2 -- a1 u1 | a3 u3 )
+: -suffix ( ca1 len1 ca2 len2 -- ca1 len1 | ca3 len3 )
   \ Remove a suffix from a string.
-  \ a1 u1 = string
-  \ a2 u2 = suffix to be removed
-  \ a3 u3 = string without the suffix
+  \ ca1 len1 = string
+  \ ca2 len2 = suffix to be removed
+  \ ca3 len3 = string without the suffix
   dup >r 2over 2swap string-suffix?
   if  r> -  else  rdrop  then
   ;
@@ -405,7 +410,9 @@ variable sectors-already-used
 
   \ Create a directory entry in the disk image.
   \ +n = disk image position of a free directory entry
+
   \ XXX TODO use entry number instead?
+  \ XXX TODO factor
 
   entry-pos !
 
@@ -600,7 +607,6 @@ variable start-of-file       \ flag for the first copied piece
     then
   then
 
-
   file-pos @ file-length < if  \ not the last piece yet
 
     \ Save the address of the next sector
@@ -706,7 +712,7 @@ mkmgt-arguments arg-add-version-option
 
 variable verbose  verbose off
 
-\ Add the -v/--verbose option switch.
+\ Add the -v/--verbose option switch. \ XXX OLD
 
 \ char v                              \ Short option name
 \ s" verbose"                         \ Long option name
@@ -733,7 +739,7 @@ true                                    \ Switch -> true
 5 dup constant arg.tap-filename-option  \ Option id
 mkmgt-arguments arg-add-option
 
-\ \ Add the -f/--file=FILE option.
+\ Add the -o/--output option switch. \ XXX OLD
 
 \ char o                          \ Short option name
 \ s" output=FILE"                 \ Long option name
@@ -756,14 +762,13 @@ mkmgt-arguments arg-add-option
     endcase
   repeat
   arg.done <> if  mkmgt-arguments arg-print-help  then
-  \ mkmgt-arguments arg-free \ free the argument parser from the heap
+  \ mkmgt-arguments arg-free \ XXX OLD -- free the argument parser from the heap
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Boot
 
 : run  ( -- )
-  \ get-image-filename files>image
   parse-options save-image
   ;
 
