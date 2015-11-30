@@ -2,7 +2,7 @@
 
 \ mkmgt
 
-s" B-00-20150807" 2constant version
+s" B-01-20151129" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -43,40 +43,26 @@ s" B-00-20150807" 2constant version
 \   http://www.worldofspectrum.org/faq/emulators/windows.htm
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Installation on Linux systems
+
+\ 1. Gforth (http://gnu.org/software/gforth) and the Forth Foundation
+\ Library (http://irdvo.github.io/ffl/) must be installed.
+\
+\ 2. Make sure this source file is executable, with the following
+\ command:
+\
+\   chmod ugo+x mkmgt.fs
+\
+\ 3. Copy, move or link this source file to your path (usually to
+\ </usr/local/bin/>), with the desired name (e.g. without the
+\ extension). Example command:
+\
+\   sudo ln mkmgt.fs /usr/local/bin/mkmgt
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ History
 
-\ 2015-04-10:
-\
-\ Start. First working version: A-00-201504102349.
-\
-\ 2015-04-11:
-\
-\ New: Support for TAP files (only one ZX Spectrum file per TAP file).
-\ Version A-01-2015041102147.
-\
-\ 2015-04-12:
-\
-\ New: Support for TAP files with several ZX Spectrum files.  Version
-\ A-02-201504121302.
-\
-\ 2015-04-13:
-\
-\ New: Support for arrays in TAP files.  Version A-03-201504130035.
-\
-\ 2015-04-24:
-\
-\ Minor layout changes. Some comments improved. New to-do notes in the
-\ code.
-\
-\ 2015-05-16:
-\
-\ Fix: Silly mistake: The `abort"` in `copy-file` was wrongly placed
-\ in an `else`; the error (more than 80 input files) was not detected
-\ and caused an stack overflow.  Version A-04-20150516.
-\
-\ 2015-08-07:
-\
-\ Revision before publishing. Version B-00-20150807.
+\ See at the end of the file.
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ To-do
@@ -398,7 +384,7 @@ variable sectors-already-used
   \ `sectors-already-used` is calculated in the process.
   \ +n = position in the disk image
   false  \ default output
-  sectors-already-used off
+  0 sectors-already-used !
   files/disk 0 ?do
     i entry>pos dup mgtc@  ( +n f )  \ occupied?
     if    11 + mgt@be sectors-already-used +!
@@ -619,20 +605,21 @@ variable start-of-file       \ flag for the first copied piece
 
   ;
 
-: copy-file-contents  ( -- )
-
-  \ Copy the contents of the current file to the disk image.
-
+: init-copy  ( -- )
+  \ Init some variables before copying a file.
   starting-side @ side !
   starting-track @ track !
   starting-sector @ sector !
   0 file-pos !
   start-of-file on
+  ;
 
+: copy-file-contents  ( -- )
+  \ Copy the contents of the current file to the disk image.
+  init-copy
   begin  file-pos @ file-length <  while
     copy-file-contents-piece
   repeat
-
   ;
 
 : copy-file  ( -- )
@@ -676,9 +663,13 @@ variable start-of-file       \ flag for the first copied piece
   (file-contents) 2@ drop free throw
   ;
 
+variable input-files  \ counter
+0 input-files !
+
 : file>image  ( ca len -- )
   \ Copy an input file to the disk image.
   \ ca len = parameter filename
+  1 input-files +!
   verbose? if  2dup type cr  then
   2dup input-filename$ $!  2dup get-input-file
   s" .tap" string-suffix?  dup to tap-file?
@@ -748,28 +739,80 @@ mkmgt-arguments arg-add-option
 \ 5                               \ Option id
 \ mkmgt-arguments arg-add-option
 
+: help  ( -- )
+  mkmgt-arguments arg-print-help bye
+  ;
+
+: option? ( -- n f )
+  mkmgt-arguments arg-parse  ( ca len n | n )  \ parse the next argument
+  dup arg.done <> over arg.error <> and  \ stop parsing when ready or after an error
+  ;
+
+: option  ( n -- )
+  case
+    arg.help-option          of  help                               endof
+    arg.version-option       of  mkmgt-arguments arg-print-version  endof
+    arg.quiet-option         of  false to verbose?                  endof
+    arg.tap-filename-option  of  true to ignore-tape-filename?      endof
+    arg.non-option           of  parameter-file                     endof
+  endcase
+  ;
+
 : parse-options  ( -- )
-  begin
-    mkmgt-arguments arg-parse  ( ca len n | n )  \ parse the next argument
-    dup arg.done <> over arg.error <> and  \ stop parsing when ready or after an error
-  while
-    case
-      arg.help-option          of  mkmgt-arguments arg-print-help     endof
-      arg.version-option       of  mkmgt-arguments arg-print-version  endof
-      arg.non-option           of  parameter-file                     endof
-      arg.quiet-option         of  false to verbose?                  endof
-      arg.tap-filename-option  of  true to ignore-tape-filename?      endof
-    endcase
-  repeat
-  arg.done <> if  mkmgt-arguments arg-print-help  then
-  \ mkmgt-arguments arg-free \ XXX OLD -- free the argument parser from the heap
+  begin  option?  while  option  repeat
   ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Boot
 
 : run  ( -- )
-  parse-options save-image
+  parse-options  input-files @ if  save-image  else  help  then
   ;
 
 run bye
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ History
+
+\ 2015-04-10:
+\
+\ Start. First working version: A-00-201504102349.
+\
+\ 2015-04-11:
+\
+\ New: Support for TAP files (only one ZX Spectrum file per TAP file).
+\ Version A-01-2015041102147.
+\
+\ 2015-04-12:
+\
+\ New: Support for TAP files with several ZX Spectrum files.  Version
+\ A-02-201504121302.
+\
+\ 2015-04-13:
+\
+\ New: Support for arrays in TAP files.  Version A-03-201504130035.
+\
+\ 2015-04-24:
+\
+\ Minor layout changes. Some comments improved. New to-do notes in the
+\ code.
+\
+\ 2015-05-16:
+\
+\ Fix: Silly mistake: The `abort"` in `copy-file` was wrongly placed
+\ in an `else`; the error (more than 80 input files) was not detected
+\ and caused an stack overflow.  Version A-04-20150516.
+\
+\ 2015-08-07:
+\
+\ Revision before publishing.
+\
+\ 2015-08-09:
+\
+\ Installation instructions.
+\
+\ 2015-11-29:
+\
+\ Factored `parse-options` and `copy-file-contents`. Improvement: now the help
+\ is shown when no input file is given.
+
