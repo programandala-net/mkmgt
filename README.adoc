@@ -1,0 +1,70 @@
+= mkmgt
+:author: Marcos Cruz (programandala.net)
+:revdate: 2015-11-29
+
+// This file is part of mkmgt
+// http://programandala.net/en.program.mkmgt.html
+
+// Copyright (C) 2015 Marcos Cruz (programandala.net)
+//
+// You may do whatever you want with this file, so long as you
+// retain the copyright notice(s) and this license in all
+// redistributed copies and derived works. There is no warranty.
+
+// This file is written in AsciiDoc/Asciidoctor format.
+// See <http://asciidoctor.org>.
+
+== Description
+
+mkmgt is an MGT disk image creator for ZX Spectrum's GDOS, G+DOS and
+Beta DOS.
+
+mkmgt creates a disk image with up to 80 files (the maximum number of
+entries of a GDOS disk). Input TAP files (ZX Spectrum tape images) are
+recognized and their contents are extracted and copied to the disk
+with their original names, type (code, BASIC, or arrays) and
+attributes. Any other file is regarded as a ZX Spectrum code file and
+copied as such.
+
+mkmgt is written in Forth for Gforth.
+
+== Requirements
+
+- http://gnu.org/software/gforth[Gforth]
+- http://irdvo.github.io/ffl/[Forth Foundation Library]
+
+== Installation
+
+1. Make sure this source file is executable, with the following
+command:
+
+----
+chmod ugo+x mkmgt.fs
+----
+
+2. Copy, move or link <mkmgt.fs> to your path (usually <~/bin/> or
+</usr/local/bin/>), with the desired name (e.g. without the
+extension). Example command:
+
+----
+sudo ln mkmgt.fs /usr/local/bin/mkmgt
+----
+
+== Usage
+
+----
+Usage: mkmgt [option]... [outputfile] [option]... [inputfile]...
+
+  -?, --help         show this help
+      --version      show version info
+  -q, --quiet        activate quiet mode: input files will not be listed
+  -t, --tap-filename use TAP filename for DOS instead of that in the tape
+                     header
+----
+
+== Examples
+
+mkmgt is used in the <Makefile> of the following projects:
+
+- http://programandala.net/en.program.afera.html[Afera]
+- http://programandala.net/en.program.solo_forth.html[Solo Forth]
