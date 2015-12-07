@@ -2,7 +2,7 @@
 
 \ mkmgt
 
-s" B-01-20151129" 2constant version
+s" B-01-20151208" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
@@ -699,19 +699,6 @@ arg-new value mkmgt-arguments
 mkmgt-arguments arg-add-help-option
 mkmgt-arguments arg-add-version-option
 
-\ Variable for the verbose switch
-
-variable verbose  verbose off
-
-\ Add the -v/--verbose option switch. \ XXX OLD
-
-\ char v                              \ Short option name
-\ s" verbose"                         \ Long option name
-\ s" activate verbose mode"           \ Description
-\ true                                \ Switch -> true
-\ 4                                   \ Option id
-\ mkmgt-arguments arg-add-option
-
 \ Add the -q/--quiet option switch.
 
 char q                              \ Short option name
@@ -730,7 +717,7 @@ true                                    \ Switch -> true
 5 dup constant arg.tap-filename-option  \ Option id
 mkmgt-arguments arg-add-option
 
-\ Add the -o/--output option switch. \ XXX OLD
+\ Add the -o/--output option parameter. \ XXX OLD
 
 \ char o                          \ Short option name
 \ s" output=FILE"                 \ Long option name
@@ -743,12 +730,15 @@ mkmgt-arguments arg-add-option
   mkmgt-arguments arg-print-help bye
   ;
 
-: option? ( -- n f )
+: option? ( -- ca len n f | n f )
+  \ ca len = option value
+  \ n = option number
+  \ f = valid option?
   mkmgt-arguments arg-parse  ( ca len n | n )  \ parse the next argument
-  dup arg.done <> over arg.error <> and  \ stop parsing when ready or after an error
+  dup arg.done <> over arg.error <> and  \ not done and not an error?
   ;
 
-: option  ( n -- )
+: option  ( ca len n | n -- )
   case
     arg.help-option          of  help                               endof
     arg.version-option       of  mkmgt-arguments arg-print-version  endof
@@ -815,4 +805,8 @@ run bye
 \
 \ Factored `parse-options` and `copy-file-contents`. Improvement: now the help
 \ is shown when no input file is given.
-
+\
+\ 2015-12-08:
+\
+\ Removed unused variable `verbose`. Fixed the stack notation and
+\ comments of `option?` and `option`.
