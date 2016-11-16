@@ -2,13 +2,13 @@
 
 \ mkmgt
 
-s" B-01-20151208" 2constant version
+s" 1.1.0+201611161905" 2constant version
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
 \ http://programandala.net/en.program.mkmgt.html
 \
-\ Copyright (C) 2015 Marcos Cruz (programandala.net)
+\ Copyright (C) 2015,2016 Marcos Cruz (programandala.net)
 
 \ mkmgt is free software; you can redistribute it and/or modify it
 \ under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ s" B-01-20151208" 2constant version
 \ You should have received a copy of the GNU General Public License
 \ along with mkmgt; if not, see <http://gnu.org/licenses>.
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Acknowledgements
 
 \ mkmgt is written in Forth with Gforth 0.7.3 (by Anton Ertl, Bernd
@@ -42,7 +42,7 @@ s" B-01-20151208" 2constant version
 \ Lunter).
 \   http://www.worldofspectrum.org/faq/emulators/windows.htm
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Installation on Linux systems
 
 \ 1. Gforth (http://gnu.org/software/gforth) and the Forth Foundation
@@ -59,12 +59,12 @@ s" B-01-20151208" 2constant version
 \
 \   sudo ln mkmgt.fs /usr/local/bin/mkmgt
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ History
 
 \ See at the end of the file.
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ To-do
 
 \ Add files to an existent disk image.
@@ -77,7 +77,7 @@ s" B-01-20151208" 2constant version
 
 \ (Other to-do tasks are marked in the source.)
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Requirements
 
 \ From Gforth:
@@ -127,7 +127,7 @@ require ffl/arg.fs  \ argument parser
   if  r> -  else  rdrop  then
   ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Command line options flags
 
 true value verbose?
@@ -141,7 +141,7 @@ false value ignore-tape-filename?
   \ case with Abersoft Forth, that always uses the filename "DISC"
   \ when it saves its RAM disk to tape.
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Disk image
 
 \ ----------------------------------------------
@@ -237,7 +237,7 @@ image /image erase
   image /image image-filename$ $@ unslurp-file
   ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Input files
 
 variable sectors/file     \ number of sectors used by the current file
@@ -374,7 +374,7 @@ false value tap-file?  \ is the current input file a TAP file?
   file-contents drop +  tap-file? if  tap-metadata+  then
   ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Directory entry
 
 variable sectors-already-used
@@ -533,7 +533,7 @@ variable sectors-already-used
 
   ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Copying a file
 
 \ The current file to be copied to the disk image can be a host system
@@ -650,7 +650,7 @@ variable start-of-file       \ flag for the first copied piece
   empty-tap-file? until
   ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Main
 
 : get-input-file  ( ca len -- )
@@ -685,7 +685,7 @@ variable input-files  \ counter
   if  file>image  else  +extension image-filename$ $!  then
   ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Argument parser
 
 s" mkmgt"                                 \ program name
@@ -752,7 +752,7 @@ mkmgt-arguments arg-add-option
   begin  option?  while  option  repeat
   ;
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ Boot
 
 : run  ( -- )
@@ -761,7 +761,7 @@ mkmgt-arguments arg-add-option
 
 run bye
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ ==============================================================
 \ History
 
 \ 2015-04-10:
@@ -810,3 +810,8 @@ run bye
 \
 \ Removed unused variable `verbose`. Fixed the stack notation and
 \ comments of `option?` and `option`.
+\
+\ 2016-11-16:
+\
+\ Convert the version number to Semantic Versioning
+\ (http://semver.org): 1.1.0+20161116.
