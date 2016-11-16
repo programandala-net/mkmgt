@@ -1,6 +1,6 @@
 = mkmgt
 :author: Marcos Cruz (programandala.net)
-:revdate: 2015-11-29
+:revdate: 2016-11-16
 
 // This file is part of mkmgt
 // http://programandala.net/en.program.mkmgt.html
@@ -47,7 +47,7 @@ chmod ugo+x mkmgt.fs
 extension). Example command:
 
 ----
-sudo ln mkmgt.fs /usr/local/bin/mkmgt
+sudo cp mkmgt.fs /usr/local/bin/mkmgt
 ----
 
 == Usage
@@ -67,4 +67,6 @@ Usage: mkmgt [option]... [outputfile] [option]... [inputfile]...
 mkmgt is used in the <Makefile> of the following projects:
 
 - http://programandala.net/en.program.afera.html[Afera]
+  (http://github.com/programandala-net/afera[Afera in GitHub])
 - http://programandala.net/en.program.solo_forth.html[Solo Forth]
+  (http://github.com/programandala-net/solo-forth[Solo Forth in GitHub])
