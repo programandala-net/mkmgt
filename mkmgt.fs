@@ -2,13 +2,14 @@
 
 \ mkmgt
 
-s" 1.1.0+201611161905" 2constant version
+: version s" 1.2.0+201707261122" ;
+\ See change log at the end of the file
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
 \ http://programandala.net/en.program.mkmgt.html
 \
-\ Copyright (C) 2015,2016 Marcos Cruz (programandala.net)
+\ Copyright (C) 2015,2016,2017 Marcos Cruz (programandala.net)
 
 \ mkmgt is free software; you can redistribute it and/or modify it
 \ under the terms of the GNU General Public License as published by
@@ -26,7 +27,7 @@ s" 1.1.0+201611161905" 2constant version
 \ ==============================================================
 \ Acknowledgements
 
-\ mkmgt is written in Forth with Gforth 0.7.3 (by Anton Ertl, Bernd
+\ mkmgt is written in Forth with Gforth 0.7.9 (by Anton Ertl, Bernd
 \ Paysan et al.):
 \   http://gnu.org/software/gforth
 
@@ -60,11 +61,6 @@ s" 1.1.0+201611161905" 2constant version
 \   sudo ln mkmgt.fs /usr/local/bin/mkmgt
 
 \ ==============================================================
-\ History
-
-\ See at the end of the file.
-
-\ ==============================================================
 \ To-do
 
 \ Add files to an existent disk image.
@@ -80,17 +76,24 @@ s" 1.1.0+201611161905" 2constant version
 \ ==============================================================
 \ Requirements
 
-\ From Gforth:
+\ ----------------------------------------------
+\ From Gforth
 
 require string.fs \ dynamic strings
 
+also c-lib
+  synonym basename basename
+previous
+
+\ ----------------------------------------------
 \ From the Forth Foundation Library
-\ (http://irdvo.github.io/ffl/):
+\ (http://irdvo.github.io/ffl/)
 
 require ffl/arg.fs  \ argument parser
 
+\ ----------------------------------------------
 \ From the Galope library
-\ (http://programandala.net/en.program.galope.html):
+\ (http://programandala.net/en.program.galope.html)
 
 : string-suffix? ( ca1 len1 ca2 len2 -- wf )
   \ Check end of string:
@@ -126,6 +129,20 @@ require ffl/arg.fs  \ argument parser
   dup >r 2over 2swap string-suffix?
   if  r> -  else  rdrop  then
   ;
+
+[undefined] s+ [if]
+
+: s+ {: ca1 len1 ca2 len2 -- ca3 len3 :}
+  len1 len2 + allocate throw {: ca3 :}
+  ca1 ca3 len1 move
+  ca2 ca3 len1 + len2 move
+  ca3 len1 len2 +
+  ;
+  \ Create a new string _ca3 len3_ in the heap, containing the
+  \ concatenation of string _ca1 len1_ (first) and string _ca2 len2_
+  \ (second).
+
+[then]
 
 \ ==============================================================
 \ Command line options flags
@@ -762,7 +779,7 @@ mkmgt-arguments arg-add-option
 run bye
 
 \ ==============================================================
-\ History
+\ Change log
 
 \ 2015-04-10:
 \
@@ -803,8 +820,8 @@ run bye
 \
 \ 2015-11-29:
 \
-\ Factored `parse-options` and `copy-file-contents`. Improvement: now the help
-\ is shown when no input file is given.
+\ Factored `parse-options` and `copy-file-contents`. Improvement: now
+\ the help is shown when no input file is given.
 \
 \ 2015-12-08:
 \
@@ -815,3 +832,9 @@ run bye
 \
 \ Convert the version number to Semantic Versioning
 \ (http://semver.org): 1.1.0+20161116.
+\
+\ 2017-07-26:
+\
+\ Add `s+`, which is in Gforth 0.7.3 but not in Gforth 0.7.9.  Add
+\ also a synonym of `basename`, which Gforth 0.7.3 defined in
+\ `forth-wordlist` but Gforth 0.7.9 defines in the `c-lib` vocabulary.
