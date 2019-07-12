@@ -2,14 +2,14 @@
 
 \ mkmgt
 
-: version s" 1.2.0+201707261122" ;
+: version s" 1.3.0+201907122050" ;
 \ See change log at the end of the file
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
 \ http://programandala.net/en.program.mkmgt.html
 \
-\ Copyright (C) 2015,2016,2017 Marcos Cruz (programandala.net)
+\ Copyright (C) 2015,2016,2017,2019 Marcos Cruz (programandala.net)
 
 \ mkmgt is free software; you can redistribute it and/or modify it
 \ under the terms of the GNU General Public License as published by
@@ -80,10 +80,6 @@
 \ From Gforth
 
 require string.fs \ dynamic strings
-
-also c-lib
-  synonym basename basename
-previous
 
 \ ----------------------------------------------
 \ From the Forth Foundation Library
@@ -838,3 +834,8 @@ run bye
 \ Add `s+`, which is in Gforth 0.7.3 but not in Gforth 0.7.9.  Add
 \ also a synonym of `basename`, which Gforth 0.7.3 defined in
 \ `forth-wordlist` but Gforth 0.7.9 defines in the `c-lib` vocabulary.
+\
+\ 2019-07-12:
+\
+\ Remove the synonym of `basename`, it is not needed anymore (in fact
+\ it causes problems) with the latest versions of Gforth 0.7.9.
