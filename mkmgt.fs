@@ -2,7 +2,7 @@
 
 \ mkmgt
 
-: version s" 1.3.0+202005142140" ;
+: version s" 1.3.1+202005142142" ;
 \ See change log at the end of the file
 
 \ A MGT disk image creator
