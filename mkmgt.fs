@@ -2,14 +2,14 @@
 
 \ mkmgt
 
-: version s" 1.3.0+202005142118" ;
+: version s" 1.3.0+202005142140" ;
 \ See change log at the end of the file
 
 \ A MGT disk image creator
 \ for ZX Spectrum's GDOS, G+DOS and Beta DOS.
 \ http://programandala.net/en.program.mkmgt.html
 \
-\ Copyright (C) 2015,2016,2017,2019 Marcos Cruz (programandala.net)
+\ Copyright (C) 2015,2016,2017,2019,2020 Marcos Cruz (programandala.net)
 
 \ mkmgt is free software; you can redistribute it and/or modify it
 \ under the terms of the GNU General Public License as published by
@@ -76,6 +76,8 @@
 \ ==============================================================
 \ Requirements
 
+warnings off
+
 \ ----------------------------------------------
 \ From Gforth
 
@@ -140,73 +142,68 @@ image /image erase
 \ Converters
 
 : geometry>pos  ( track side sector -- +n )
+  1-  swap 10 * +  swap 20 * +  bytes/sector * ;
   \ Convert a track, a side and a sector
   \ to a position in the disk image.
   \ track   = 0..79
   \ side    = 0..1
   \ sector  = 1..10
-  1-  swap 10 * +  swap 20 * +  bytes/sector *
-  ;
 
 : entry>pos  ( entry -- +n )
-  \ Convert a directory entry
-  \ to its position in the disk image.
-  \ entry = 0..79 (instead of the usual range 1..80)
   dup >r 20 /      \ track
   0                \ side
   r@ 20 mod 2/ 1+  \ sector
   geometry>pos
-  r> 2 mod 256 * +
-  ;
+  r> 2 mod 256 * + ;
+  \ Convert a directory entry
+  \ to its position in the disk image.
+  \ entry = 0..79 (instead of the usual range 1..80)
 
 : image+  ( +n -- a )
+  image + ;
   \ Convert a position in the disk image
   \ to its actual memory address.
-  image +
-  ;
 
 \ ----------------------------------------------
 \ Fetch and store
 
 : @z80  ( a -- 16b )
+  dup c@ swap 1+ c@ 256 * + ;
   \ Fetch a 16-bit value with Z80 format: LSB first.
-  dup c@ swap 1+ c@ 256 * +
-  ;
-: !z80  ( 16b a -- )
-  \ Store a 16-bit value with Z80 format: LSB first.
-  swap 2dup  256 mod swap c!  256 / swap 1+ c!
-  ;
-: @big-endian  ( a -- 16b )
-  \ Fetch a 16-bit value with big-endian format: MSB first.
-  dup c@ 256 * swap 1+ c@ +
-  ;
-: !big-endian  ( 16b a -- )
-  \ Store a 16-bit value with big-endian format: MSB first.
-  swap 2dup  256 / swap c!  256 mod swap 1+ c!
-  ;
 
-: mgtc@   ( +n -- 8b )   image+ c@  ;
-: mgtc!   ( 8b +n -- )   image+ c!  ;
-: mgt@    ( +n -- 16b )  image+ @z80  ;
-: mgt@be  ( +n -- 16b )  image+ @big-endian  ;
-: mgt!    ( 16b +n -- )  image+ !z80  ;
-: mgt!be  ( +n -- 16b )  image+ !big-endian  ;
+: !z80  ( 16b a -- )
+  swap 2dup  256 mod swap c!  256 / swap 1+ c! ;
+  \ Store a 16-bit value with Z80 format: LSB first.
+
+: @big-endian  ( a -- 16b )
+  dup c@ 256 * swap 1+ c@ + ;
+  \ Fetch a 16-bit value with big-endian format: MSB first.
+
+: !big-endian  ( 16b a -- )
+  swap 2dup  256 / swap c!  256 mod swap 1+ c! ;
+  \ Store a 16-bit value with big-endian format: MSB first.
+
+: mgtc@  ( +n -- 8b )  image+ c@ ;
+: mgtc!  ( 8b +n -- )  image+ c! ;
+: mgt@   ( +n -- 16b ) image+ @z80 ;
+: mgt@be ( +n -- 16b ) image+ @big-endian ;
+: mgt!   ( 16b +n -- ) image+ !z80 ;
+: mgt!be ( +n -- 16b ) image+ !big-endian ;
 
 \ ----------------------------------------------
 \ File
 
 : +extension  ( ca1 len1 -- ca2 len2 )
+  2dup s" .mgt" string-suffix? 0= if s" .mgt" s+ then ;
   \ Add the .mgt file extension to the given filename, if missing.
-  2dup s" .mgt" string-suffix? 0= if  s" .mgt" s+  then
-  ;
+
 \ : get-image-filename  ( -- )
 \   \ Get the first parameter, the disk image filename.
-\   1 arg  +extension image-filename$ $!
-\   ;
+\   1 arg  +extension image-filename$ $! ;
+
 : save-image  ( -- )
+  image /image image-filename$ $@ unslurp-file ;
   \ Save the disk image to a file.
-  image /image image-filename$ $@ unslurp-file
-  ;
 
 \ ==============================================================
 \ Input files
@@ -220,34 +217,31 @@ variable input-filename$  \ filename of the current file (dinamyc string)
 variable entry-pos        \ directory entry position in the disk image
 
 : entry-pos+  ( n1 -- n2 )
+  entry-pos @ + ;
   \ Convert a position in a directory entry
   \ to a position in the disk image.
-  entry-pos @ +
-  ;
 
 2variable (file-contents)  \ contents of the current input file (memory zone)
 variable file-contents-pos \ position in the file contents (used for TAP files)
 
 : file-contents  ( -- ca len )
+  (file-contents) 2@ file-contents-pos @ /string ;
   \ Contents of the current input file.
-  (file-contents) 2@ file-contents-pos @ /string
-  ;
 
 false value tap-file?  \ is the current input file a TAP file?
 
 : filename!  ( ca len +n -- )
+  image+ dup >r /filename blank r> swap move ;
   \ Store a DOS filename into the disk image.
   \ ca len = filename
   \ +n = disk image position
-  image+ dup >r /filename blank r> swap move
-  ;
 
 : tape-header+  ( n -- a )
+  file-contents drop + ;
   \ Convert a position in the tape header to its actual address.
-  file-contents drop +
-  ;
 
 : (tape-header-id)  ( -- n )
+  3 tape-header+ c@ ;
   \ Tape header id of the current input file, that is TAP file.
   \ The tape header id can be:
   \ 0 for a BASIC program;
@@ -256,15 +250,15 @@ false value tap-file?  \ is the current input file a TAP file?
   \ 3 for a code file.
   \ A SCREEN$ file is regarded as a code file
   \ with start address 16384 and length 6912 decimal.
-  3 tape-header+ c@
-  ;
+
 : tape-header-id  ( -- n )
+  tap-file? if (tape-header-id) else 3 then ;
   \ Tape header id of the current input file.
   \ If the current input file is not in a TAP file,
   \ it's regarded as a code file (tape header id 3).
-  tap-file? if  (tape-header-id)  else  3  then
-  ;
+
 : file-type  ( -- n )
+  tap-file? if (tape-header-id) 1+ else 4 then ;
   \ DOS file type of the current input file.
   \ DOS file types:
   \   0: Erased            1: ZX BASIC    2: ZX numeric array
@@ -274,76 +268,70 @@ false value tap-file?  \ is the current input file a TAP file?
   \ If the current input file is not in a TAP file,
   \ it's regarded as a code file (DOS file type 4).
   \ XXX TODO return file type 7 if code is 16384,6912
-  tap-file? if  (tape-header-id) 1+  else  4  then
-  ;
 
 : dos-filename<tape-header  ( -- ca len )
+  4 tape-header+ /filename ;
   \ Get the DOS filename from the tape header of the input TAP file.
-  4 tape-header+  /filename
-  ;
+
 : dos-filename<input-tap-file  ( -- ca len )
+  input-filename$ $@ basename s" .tap" -suffix /filename min ;
   \ Get the DOS filename from the input TAP file.
   \ XXX TODO if the TAP file has several ZX Spectrum files,
   \ add an index number.
-  input-filename$ $@ basename s" .tap" -suffix /filename min
-  ;
+
 : dos-filename<input-file  ( -- ca len )
+  input-filename$ $@ basename /filename min ;
   \ Get the DOS filename from the input file.
-  input-filename$ $@ basename /filename min
-  ;
 
 : dos-filename  ( -- ca len )
+  tap-file? if
+    ignore-tape-filename?  if   dos-filename<input-tap-file
+                           else dos-filename<tape-header then
+  else dos-filename<input-file then ;
   \ DOS filename of the current input file.
   \ Depending on the input file and the options,
   \ the DOS filename can be the filename of the input file,
   \ the filename stored in the tape header of a TAP file
   \ or the filename of the TAP file.
   \ ca len = filename
-  tap-file? if
-    ignore-tape-filename?  if    dos-filename<input-tap-file
-                           else  dos-filename<tape-header  then
-  else  dos-filename<input-file  then
-  ;
+
 : file-length  ( -- n )
+  file-contents tap-file? if drop 14 + @z80 else nip then ;
   \ Length of the current file.
   \ XXX TODO factor
-  file-contents tap-file? if  drop 14 + @z80  else  nip  then
-  ;
+
 : start  ( -- n )
+  tap-file? if 16 tape-header+ @z80 else 0 then ;
   \ Autostart line (for BASIC programs)
   \ or start address (for code files)
-  tap-file? if  16 tape-header+ @z80  else  0  then
-  ;
+
 : start2  ( -- n )
+  tap-file? if 18 tape-header+ @z80 else 32768 then ;
   \ If the current file is a BASIC program,
   \ return the start of the variable area
   \ relative to the start of the program;
   \ if it's a code file, return 32768.
   \ If the current file is not a TAP file,
   \ it's regarded as a code file.
-  tap-file? if  18 tape-header+ @z80 else  32768  then
-  ;
+
 : array-name-letter  ( -- b )
+  17 tape-header+ @z80 ;
   \ Array name letter of the current file,
   \ that is an numeric or string array stored in a TAP file.
   \ Note: The array name letter is uppercase; bit 6 set means
   \ a numeric array, and bit 7 set means a string array.
-  17 tape-header+ @z80
-  ;
 
 : tap-metadata+  ( +n1 -- +n2 )
+  24 + ;
   \ Update a position in the current file,
   \ skipping all TAP header info until the first
   \ actual data byte.
-  24 +
-  ;
 
 : file+  ( +n -- a )
+  file-contents drop + tap-file? if tap-metadata+ then ;
   \ Convert a position in the current file
   \ to its actual memory address.
   \ XXX TODO factor with tape-header+
-  file-contents drop +  tap-file? if  tap-metadata+  then
-  ;
 
 \ ==============================================================
 \ Directory entry
@@ -351,17 +339,16 @@ false value tap-file?  \ is the current input file a TAP file?
 variable sectors-already-used
 
 : free-entry?  ( -- +n true | false )
-  \ Is there a free directory entry in the disk image?
-  \ `sectors-already-used` is calculated in the process.
-  \ +n = position in the disk image
   false  \ default output
   0 sectors-already-used !
   files/disk 0 ?do
     i entry>pos dup mgtc@  ( +n f )  \ occupied?
     if    11 + mgt@be sectors-already-used +!
     else  swap 0= unloop exit  then
-  loop
-  ;
+  loop ;
+  \ Is there a free directory entry in the disk image?
+  \ `sectors-already-used` is calculated in the process.
+  \ +n = position in the disk image
 
 : make-directory-entry  ( +n -- )
 
@@ -445,8 +432,8 @@ variable sectors-already-used
   \ The tape header id and the file lenght are common to any input
   \ file.
 
-  tape-header-id      211 entry-pos+ mgtc!
-  file-length         212 entry-pos+ mgt!
+  tape-header-id 211 entry-pos+ mgtc!
+  file-length    212 entry-pos+ mgt!
 
   \ The rest of the GDOS header depends on the origin of the input
   \ file (a host system file or a ZX Spectrum file inside a TAP file).
@@ -500,9 +487,7 @@ variable sectors-already-used
     \ The input file is a host system file, regarded as a code file.
     0xFFFF 216 entry-pos+ mgt!
 
-  then
-
-  ;
+  then ;
 
 \ ==============================================================
 \ Copying a file
@@ -572,89 +557,80 @@ variable start-of-file       \ flag for the first copied piece
     track @ side @ 128 * +  previous-image-pos @ 510 + mgtc!  \ track
     sector @  previous-image-pos @ 511 + mgtc!                \ sector
 
-  then
-
-  ;
+  then ;
 
 : init-copy  ( -- )
-  \ Init some variables before copying a file.
   starting-side @ side !
   starting-track @ track !
   starting-sector @ sector !
   0 file-pos !
-  start-of-file on
-  ;
+  start-of-file on ;
+  \ Init some variables before copying a file.
 
 : copy-file-contents  ( -- )
-  \ Copy the contents of the current file to the disk image.
   init-copy
   begin  file-pos @ file-length <  while
     copy-file-contents-piece
-  repeat
-  ;
+  repeat ;
+  \ Copy the contents of the current file to the disk image.
 
 : copy-file  ( -- )
+  free-entry? 0= abort" Too many files for MGT format."
+  make-directory-entry copy-file-contents ;
   \ Copy the current input file to the disk image.  The current input
   \ file can be a host system file, regarded as a code file, or a ZX
   \ Spectrum file included in a TAP file.
-  free-entry? 0= abort" Too many files for MGT format."
-  make-directory-entry copy-file-contents
-  ;
 
 : file-in-tap+  ( +n1 -- +n2 )
-  \ Update a file position
-  \ to point to the next ZX Spectrum file in the TAP file.
   tap-metadata+  \ point to the first actual data byte
   file-length +  \ skip the data
-  1+             \ skip the checksum byte at the end of the TAP data block
-  ;
+  1+ ;           \ skip the checksum byte at the end of the TAP data block
+  \ Update a file position
+  \ to point to the next ZX Spectrum file in the TAP file.
+
 : empty-tap-file?  ( -- f )
-  \ Is the current TAP file empty?
   file-contents-pos @ file-in-tap+  \ new position
   dup file-contents-pos !           \ update the position
-  (file-contents) 2@ nip =          \ end of the TAP file?
-  ;
+  (file-contents) 2@ nip = ;        \ end of the TAP file?
+  \ Is the current TAP file empty?
+
 : copy-tap-file  ( -- )
+  begin  verbose? if  dos-filename 2 spaces type cr  then  copy-file
+  empty-tap-file? until ;
   \ Copy a TAP file to the disk image.
   \ It can include one or more ZX Spectrum files.
-  begin  verbose? if  dos-filename 2 spaces type cr  then  copy-file
-  empty-tap-file? until
-  ;
 
 \ ==============================================================
 \ Main
 
 : get-input-file  ( ca len -- )
+  slurp-file (file-contents) 2!  0 file-contents-pos ! ;
   \ Get the contents of an input file.
   \ ca len = filename
-  slurp-file (file-contents) 2!  0 file-contents-pos !
-  ;
+
 : free-input-file  ( -- )
+  (file-contents) 2@ drop free throw ;
   \ Free the space used by the input file.
-  (file-contents) 2@ drop free throw
-  ;
 
 variable input-files  \ counter
 0 input-files !
 
 : file>image  ( ca len -- )
-  \ Copy an input file to the disk image.
-  \ ca len = parameter filename
   1 input-files +!
-  verbose? if  2dup type cr  then
+  verbose? if 2dup type cr then
   2dup input-filename$ $!  2dup get-input-file
   s" .tap" string-suffix?  dup to tap-file?
-  if  copy-tap-file  else  copy-file  then  free-input-file
-  ;
+  if copy-tap-file else copy-file then free-input-file ;
+  \ Copy an input file to the disk image.
+  \ ca len = parameter filename
 
 : parameter-file  ( ca len -- )
+  image-filename$ $@len \ is the output filename already set?
+  if file>image else +extension image-filename$ $! then ;
   \ Treat a file received as parameter.
   \ If it's the first one, it's regarded as the output file;
   \ otherwise it's an input file.
   \ ca len = filename
-  image-filename$ $@len  \ is the output filename already set?
-  if  file>image  else  +extension image-filename$ $!  then
-  ;
 
 \ ==============================================================
 \ Argument parser
@@ -698,37 +674,32 @@ mkmgt-arguments arg-add-option
 \ mkmgt-arguments arg-add-option
 
 : help  ( -- )
-  mkmgt-arguments arg-print-help bye
-  ;
+  mkmgt-arguments arg-print-help bye ;
 
 : option? ( -- ca len n f | n f )
+  mkmgt-arguments arg-parse  ( ca len n | n )  \ parse the next argument
+  dup arg.done <> over arg.error <> and ; \ not done and not an error?
   \ ca len = option value
   \ n = option number
   \ f = valid option?
-  mkmgt-arguments arg-parse  ( ca len n | n )  \ parse the next argument
-  dup arg.done <> over arg.error <> and  \ not done and not an error?
-  ;
 
 : option  ( ca len n | n -- )
   case
-    arg.help-option          of  help                               endof
-    arg.version-option       of  mkmgt-arguments arg-print-version  endof
-    arg.quiet-option         of  false to verbose?                  endof
-    arg.tap-filename-option  of  true to ignore-tape-filename?      endof
-    arg.non-option           of  parameter-file                     endof
-  endcase
-  ;
+    arg.help-option         of help                              endof
+    arg.version-option      of mkmgt-arguments arg-print-version endof
+    arg.quiet-option        of false to verbose?                 endof
+    arg.tap-filename-option of true to ignore-tape-filename?     endof
+    arg.non-option          of parameter-file                    endof
+  endcase ;
 
 : parse-options  ( -- )
-  begin  option?  while  option  repeat
-  ;
+  begin option? while option repeat ;
 
 \ ==============================================================
 \ Boot
 
 : run  ( -- )
-  parse-options  input-files @ if  save-image  else  help  then
-  ;
+  parse-options input-files @ if save-image else help then ;
 
 run bye
 
@@ -797,3 +768,6 @@ run bye
 \
 \ Remove the synonym of `basename`, it is not needed anymore (in fact
 \ it causes problems) with the latest versions of Gforth 0.7.9.
+\
+\ 2020-05-14: Use the Galope library modules. Update source style. Add
+\ `warnings off`.
