@@ -2,7 +2,7 @@
 
 \ mkmgt
 
-: version s" 1.3.0+201907122050" ;
+: version s" 1.3.0+202005142118" ;
 \ See change log at the end of the file
 
 \ A MGT disk image creator
@@ -85,60 +85,18 @@ require string.fs \ dynamic strings
 \ From the Forth Foundation Library
 \ (http://irdvo.github.io/ffl/)
 
-require ffl/arg.fs  \ argument parser
+require ffl/arg.fs \ argument parser
 
 \ ----------------------------------------------
 \ From the Galope library
 \ (http://programandala.net/en.program.galope.html)
 
-: string-suffix? ( ca1 len1 ca2 len2 -- wf )
-  \ Check end of string:
-  \ Is ca2 len2 the end of ca1 len1?
-  \ ca1 len1 = long string
-  \ ca2 len2 = suffix to check
-  2swap dup 3 pick - /string  compare 0=
-  ;
-
-: unslurp-file  ( ca1 len1 ca2 len2 -- )
-  \ Save a memory region to a file.
-  \ ca1 len1 = content to write to the file
-  \ ca2 len2 = filename
-  w/o create-file throw >r
-  r@ write-file throw
-  r> close-file throw
-  ;
-
-: default-of  ( -- )
-  postpone dup postpone of
-  ;  immediate compile-only
-
-: $variable  ( "name" -- )
-  \ Create and initialize a dynamic string variable.
-  variable  0 latestxt execute $!len
-  ;
-
-: -suffix ( ca1 len1 ca2 len2 -- ca1 len1 | ca3 len3 )
-  \ Remove a suffix from a string.
-  \ ca1 len1 = string
-  \ ca2 len2 = suffix to be removed
-  \ ca3 len3 = string without the suffix
-  dup >r 2over 2swap string-suffix?
-  if  r> -  else  rdrop  then
-  ;
-
-[undefined] s+ [if]
-
-: s+ {: ca1 len1 ca2 len2 -- ca3 len3 :}
-  len1 len2 + allocate throw {: ca3 :}
-  ca1 ca3 len1 move
-  ca2 ca3 len1 + len2 move
-  ca3 len1 len2 +
-  ;
-  \ Create a new string _ca3 len3_ in the heap, containing the
-  \ concatenation of string _ca1 len1_ (first) and string _ca2 len2_
-  \ (second).
-
-[then]
+include galope/string-suffix-question.fs \ `string-suffix?`
+include galope/unslurp-file.fs \ `unslurp-file`
+include galope/default-of.fs \ `default-of`
+include galope/dollar-variable.fs \ `$variable`
+include galope/minus-suffix.fs \ `-suffix`
+include galope/s-plus.fs \ `s+`
 
 \ ==============================================================
 \ Command line options flags
